@@ -20,6 +20,10 @@
   #include "../x86/x86formatter_p.h"
 #endif
 
+#if !defined(ASMJIT_NO_AARCH32)
+  #include "../arm/a32formatter_p.h"
+#endif
+
 #if !defined(ASMJIT_NO_AARCH64)
   #include "../arm/a64formatter_p.h"
 #endif
@@ -123,32 +127,33 @@ Error formatLabel(
 
   DebugUtils::unused(formatFlags);
 
-  const LabelEntry* le = emitter->code()->labelEntry(labelId);
-  if (ASMJIT_UNLIKELY(!le))
-    return sb.appendFormat("<InvalidLabel:%u>", labelId);
+  if (emitter && emitter->code()) {
+    const LabelEntry* le = emitter->code()->labelEntry(labelId);
+    if (ASMJIT_UNLIKELY(!le))
+      return sb.appendFormat("<InvalidLabel:%u>", labelId);
 
-  if (le->hasName()) {
-    if (le->hasParent()) {
-      uint32_t parentId = le->parentId();
-      const LabelEntry* pe = emitter->code()->labelEntry(parentId);
+    if (le->hasName()) {
+      if (le->hasParent()) {
+        uint32_t parentId = le->parentId();
+        const LabelEntry* pe = emitter->code()->labelEntry(parentId);
 
-      if (ASMJIT_UNLIKELY(!pe))
-        ASMJIT_PROPAGATE(sb.appendFormat("<InvalidLabel:%u>", labelId));
-      else if (ASMJIT_UNLIKELY(!pe->hasName()))
-        ASMJIT_PROPAGATE(sb.appendFormat("L%u", parentId));
-      else
-        ASMJIT_PROPAGATE(sb.append(pe->name()));
+        if (ASMJIT_UNLIKELY(!pe))
+          ASMJIT_PROPAGATE(sb.appendFormat("<InvalidLabel:%u>", labelId));
+        else if (ASMJIT_UNLIKELY(!pe->hasName()))
+          ASMJIT_PROPAGATE(sb.appendFormat("L%u", parentId));
+        else
+          ASMJIT_PROPAGATE(sb.append(pe->name()));
 
-      ASMJIT_PROPAGATE(sb.append('.'));
+        ASMJIT_PROPAGATE(sb.append('.'));
+      }
+
+      if (le->type() == LabelType::kAnonymous)
+        ASMJIT_PROPAGATE(sb.appendFormat("L%u@", labelId));
+      return sb.append(le->name());
     }
+  }
 
-    if (le->type() == LabelType::kAnonymous)
-      ASMJIT_PROPAGATE(sb.appendFormat("L%u@", labelId));
-    return sb.append(le->name());
-  }
-  else {
-    return sb.appendFormat("L%u", labelId);
-  }
+  return sb.appendFormat("L%u", labelId);
 }
 
 Error formatRegister(
@@ -164,9 +169,9 @@ Error formatRegister(
     return x86::FormatterInternal::formatRegister(sb, formatFlags, emitter, arch, regType, regId);
 #endif
 
-#if !defined(ASMJIT_NO_AARCH64)
-  if (Environment::isFamilyAArch64(arch))
-    return a64::FormatterInternal::formatRegister(sb, formatFlags, emitter, arch, regType, regId);
+#if !defined(ASMJIT_NO_AARCH64) || !defined(ASMJIT_NO_AARCH32)
+  if (Environment::isFamilyARM(arch))
+    return arm::FormatterInternal::formatRegister(sb, formatFlags, emitter, arch, regType, regId);
 #endif
 
   return kErrorInvalidArch;
@@ -184,9 +189,9 @@ Error formatOperand(
     return x86::FormatterInternal::formatOperand(sb, formatFlags, emitter, arch, op);
 #endif
 
-#if !defined(ASMJIT_NO_AARCH64)
-  if (Environment::isFamilyAArch64(arch))
-    return a64::FormatterInternal::formatOperand(sb, formatFlags, emitter, arch, op);
+#if !defined(ASMJIT_NO_AARCH64) || !defined(ASMJIT_NO_AARCH32)
+  if (Environment::isFamilyARM(arch))
+    return arm::FormatterInternal::formatOperand(sb, formatFlags, emitter, arch, op);
 #endif
 
   return kErrorInvalidArch;
@@ -283,8 +288,13 @@ Error formatInstruction(
 #endif
 
 #if !defined(ASMJIT_NO_AARCH64)
-  if (Environment::isFamilyARM(arch))
+  if (Environment::isFamilyAArch64(arch))
     return a64::FormatterInternal::formatInstruction(sb, formatFlags, emitter, arch, inst, operands, opCount);
+#endif
+
+#if !defined(ASMJIT_NO_AARCH32)
+  if (Environment::isFamilyAArch32(arch))
+    return a32::FormatterInternal::formatInstruction(sb, formatFlags, emitter, arch, inst, operands, opCount);
 #endif
 
   return kErrorInvalidArch;

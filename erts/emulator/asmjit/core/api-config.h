@@ -12,20 +12,23 @@
 //! \addtogroup asmjit_core
 //! \{
 
-//! AsmJit library version in `(Major << 16) | (Minor << 8) | (Patch)` format.
-#define ASMJIT_LIBRARY_VERSION 0x010A00 /* 1.10.0 */
+//! Makes a 32-bit integer that represents AsmJit version in `(major << 16) | (minor << 8) | patch` form.
+#define ASMJIT_LIBRARY_MAKE_VERSION(major, minor, patch) ((major << 16) | (minor << 8) | (patch))
+
+//! AsmJit library version, see \ref ASMJIT_LIBRARY_MAKE_VERSION for a version format reference.
+#define ASMJIT_LIBRARY_VERSION ASMJIT_LIBRARY_MAKE_VERSION(1, 11, 0)
 
 //! \def ASMJIT_ABI_NAMESPACE
 //!
 //! AsmJit ABI namespace is an inline namespace within \ref asmjit namespace.
 //!
-//! It's used to make sure that when user links to an incompatible version of AsmJit, it won't link. It has also some
-//! additional properties as well. When `ASMJIT_ABI_NAMESPACE` is defined by the user it would override the AsmJit
-//! default, which makes it possible to use use multiple AsmJit libraries within a single project, totally controlled
-//! by the users. This is useful especially in cases in which some of such library comes from a third party.
-#ifndef ASMJIT_ABI_NAMESPACE
-  #define ASMJIT_ABI_NAMESPACE _abi_1_10
-#endif
+//! It's used to make sure that when user links to an incompatible version of AsmJit, it won't link. It has also
+//! some additional properties as well. When `ASMJIT_ABI_NAMESPACE` is defined by the user it would override the
+//! AsmJit default, which makes it possible to use multiple AsmJit libraries within a single project, totally
+//! controlled by users. This is useful especially in cases in which some of such library comes from third party.
+#if !defined(ASMJIT_ABI_NAMESPACE)
+  #define ASMJIT_ABI_NAMESPACE _abi_1_11
+#endif // !ASMJIT_ABI_NAMESPACE
 
 //! \}
 
@@ -39,6 +42,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <new>
@@ -68,12 +72,12 @@ namespace asmjit {
 
 //! Defined when AsmJit's build configuration is 'Debug'.
 //!
-//! \note Can be defined explicitly to bypass autodetection.
+//! \note Can be defined explicitly to bypass auto-detection.
 #define ASMJIT_BUILD_DEBUG
 
 //! Defined when AsmJit's build configuration is 'Release'.
 //!
-//! \note Can be defined explicitly to bypass autodetection.
+//! \note Can be defined explicitly to bypass auto-detection.
 #define ASMJIT_BUILD_RELEASE
 
 //! Disables X86/X64 backends.
@@ -113,7 +117,7 @@ namespace asmjit {
 #define ASMJIT_NO_INTROSPECTION
 
 // Avoid doxygen preprocessor using feature-selection definitions.
-#undef ASMJIT_BUILD_EMBNED
+#undef ASMJIT_BUILD_EMBED
 #undef ASMJIT_BUILD_STATIC
 #undef ASMJIT_BUILD_DEBUG
 #undef ASMJIT_BUILD_RELEASE
@@ -172,7 +176,7 @@ namespace asmjit {
   #define ASMJIT_ARCH_X86 0
 #endif
 
-#if defined(__arm64__) || defined(__aarch64__)
+#if defined(_M_ARM64) || defined(__arm64__) || defined(__aarch64__)
 # define ASMJIT_ARCH_ARM 64
 #elif defined(_M_ARM) || defined(_M_ARMT) || defined(__arm__) || defined(__thumb__) || defined(__thumb2__)
   #define ASMJIT_ARCH_ARM 32
@@ -213,7 +217,11 @@ namespace asmjit {
     #define ASMJIT_NO_X86
   #endif
 
-  #if !ASMJIT_ARCH_ARM && !defined(ASMJIT_NO_AARCH64)
+  #if ASMJIT_ARCH_ARM != 32 && !defined(ASMJIT_NO_AARCH32)
+    #define ASMJIT_NO_AARCH32
+  #endif
+
+  #if ASMJIT_ARCH_ARM != 64 && !defined(ASMJIT_NO_AARCH64)
     #define ASMJIT_NO_AARCH64
   #endif
 #endif
@@ -315,6 +323,15 @@ namespace asmjit {
   #define ASMJIT_FORCE_INLINE __forceinline
 #else
   #define ASMJIT_FORCE_INLINE inline
+#endif
+
+
+#if defined(__clang__)
+  #define ASMJIT_INLINE_NODEBUG inline __attribute__((__always_inline__, __nodebug__))
+#elif defined(__GNUC__)
+  #define ASMJIT_INLINE_NODEBUG inline __attribute__((__always_inline__, __artificial__))
+#else
+  #define ASMJIT_INLINE_NODEBUG inline
 #endif
 
 #if defined(__GNUC__)
@@ -549,34 +566,34 @@ namespace asmjit {
   #define ASMJIT_DEFINE_ENUM_FLAGS(T)
 #else
   #define ASMJIT_DEFINE_ENUM_FLAGS(T)                                         \
-    static ASMJIT_FORCE_INLINE constexpr T operator~(T a) noexcept {          \
+    static ASMJIT_INLINE_NODEBUG constexpr T operator~(T a) noexcept {        \
       return T(~(std::underlying_type<T>::type)(a));                          \
     }                                                                         \
                                                                               \
-    static ASMJIT_FORCE_INLINE constexpr T operator|(T a, T b) noexcept {     \
+    static ASMJIT_INLINE_NODEBUG constexpr T operator|(T a, T b) noexcept {   \
       return T((std::underlying_type<T>::type)(a) |                           \
               (std::underlying_type<T>::type)(b));                            \
     }                                                                         \
-    static ASMJIT_FORCE_INLINE constexpr T operator&(T a, T b) noexcept {     \
+    static ASMJIT_INLINE_NODEBUG constexpr T operator&(T a, T b) noexcept {   \
       return T((std::underlying_type<T>::type)(a) &                           \
               (std::underlying_type<T>::type)(b));                            \
     }                                                                         \
-    static ASMJIT_FORCE_INLINE constexpr T operator^(T a, T b) noexcept {     \
+    static ASMJIT_INLINE_NODEBUG constexpr T operator^(T a, T b) noexcept {   \
       return T((std::underlying_type<T>::type)(a) ^                           \
               (std::underlying_type<T>::type)(b));                            \
     }                                                                         \
                                                                               \
-    static ASMJIT_FORCE_INLINE T& operator|=(T& a, T b) noexcept {            \
+    static ASMJIT_INLINE_NODEBUG T& operator|=(T& a, T b) noexcept {          \
       a = T((std::underlying_type<T>::type)(a) |                              \
             (std::underlying_type<T>::type)(b));                              \
       return a;                                                               \
     }                                                                         \
-    static ASMJIT_FORCE_INLINE T& operator&=(T& a, T b) noexcept {            \
+    static ASMJIT_INLINE_NODEBUG T& operator&=(T& a, T b) noexcept {          \
       a = T((std::underlying_type<T>::type)(a) &                              \
             (std::underlying_type<T>::type)(b));                              \
       return a;                                                               \
     }                                                                         \
-    static ASMJIT_FORCE_INLINE T& operator^=(T& a, T b) noexcept {            \
+    static ASMJIT_INLINE_NODEBUG T& operator^=(T& a, T b) noexcept {          \
       a = T((std::underlying_type<T>::type)(a) ^                              \
             (std::underlying_type<T>::type)(b));                              \
       return a;                                                               \
@@ -590,16 +607,16 @@ namespace asmjit {
   #define ASMJIT_DEFINE_ENUM_COMPARE(T)
 #else
   #define ASMJIT_DEFINE_ENUM_COMPARE(T)                                                \
-    static ASMJIT_FORCE_INLINE bool operator<(T a, T b) noexcept {                     \
+    static ASMJIT_INLINE_NODEBUG bool operator<(T a, T b) noexcept {                   \
       return (std::underlying_type<T>::type)(a) < (std::underlying_type<T>::type)(b);  \
     }                                                                                  \
-    static ASMJIT_FORCE_INLINE bool operator<=(T a, T b) noexcept {                    \
+    static ASMJIT_INLINE_NODEBUG bool operator<=(T a, T b) noexcept {                  \
       return (std::underlying_type<T>::type)(a) <= (std::underlying_type<T>::type)(b); \
     }                                                                                  \
-    static ASMJIT_FORCE_INLINE bool operator>(T a, T b) noexcept {                     \
+    static ASMJIT_INLINE_NODEBUG bool operator>(T a, T b) noexcept {                   \
       return (std::underlying_type<T>::type)(a) > (std::underlying_type<T>::type)(b);  \
     }                                                                                  \
-    static ASMJIT_FORCE_INLINE bool operator>=(T a, T b) noexcept {                    \
+    static ASMJIT_INLINE_NODEBUG bool operator>=(T a, T b) noexcept {                  \
       return (std::underlying_type<T>::type)(a) >= (std::underlying_type<T>::type)(b); \
     }
 #endif

@@ -135,10 +135,10 @@ static const constexpr NoInit_ NoInit {};
 } // {Globals}
 
 template<typename Func>
-static inline Func ptr_as_func(void* func) noexcept { return Support::ptr_cast_impl<Func, void*>(func); }
+static ASMJIT_INLINE_NODEBUG Func ptr_as_func(void* func) noexcept { return Support::ptr_cast_impl<Func, void*>(func); }
 
 template<typename Func>
-static inline void* func_as_ptr(Func func) noexcept { return Support::ptr_cast_impl<void*, Func>(func); }
+static ASMJIT_INLINE_NODEBUG void* func_as_ptr(Func func) noexcept { return Support::ptr_cast_impl<void*, Func>(func); }
 
 //! \}
 
@@ -175,7 +175,10 @@ enum ErrorCode : uint32_t {
   //! The object is already initialized.
   kErrorAlreadyInitialized,
 
-  //! Built-in feature was disabled at compile time and it's not available.
+  //! Either a built-in feature was disabled at compile time and it's not available or the feature is not
+  //! available on the target platform.
+  //!
+  //! For example trying to allocate large pages on unsupported platform would return this error.
   kErrorFeatureNotEnabled,
 
   //! Too many handles (Windows) or file descriptors (Unix/Posix).
@@ -320,6 +323,11 @@ enum ErrorCode : uint32_t {
   //! Failed to open anonymous memory handle or file descriptor.
   kErrorFailedToOpenAnonymousMemory,
 
+  //! Failed to open a file.
+  //!
+  //! \note This is a generic error that is used by internal filesystem API.
+  kErrorFailedToOpenFile,
+
   // @EnumValuesEnd@
 
   //! Count of AsmJit error codes.
@@ -332,7 +340,7 @@ namespace DebugUtils {
 //! \cond INTERNAL
 //! Used to silence warnings about unused arguments or variables.
 template<typename... Args>
-static inline void unused(Args&&...) noexcept {}
+static ASMJIT_INLINE_NODEBUG void unused(Args&&...) noexcept {}
 //! \endcond
 
 //! Returns the error `err` passed.

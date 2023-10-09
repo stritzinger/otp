@@ -6,6 +6,7 @@
 #ifndef ASMJIT_X86_X86INSTDB_P_H_INCLUDED
 #define ASMJIT_X86_X86INSTDB_P_H_INCLUDED
 
+#include "../core/instdb_p.h"
 #include "../x86/x86instdb.h"
 
 ASMJIT_BEGIN_SUB_NAMESPACE(x86)
@@ -126,6 +127,7 @@ enum EncodingId : uint32_t {
   kEncodingVexMri,                       //!< VEX|EVEX [MRI].
   kEncodingVexMri_Lx,                    //!< VEX|EVEX [MRI] (propagates VEX|EVEX.L if YMM used).
   kEncodingVexMri_Vpextrw,               //!< VEX|EVEX [MRI] (special case required by VPEXTRW instruction).
+  kEncodingVexMvr_Wx,                    //!< VEX|EVEX [MVR] (propagates VEX|EVEX.W if GPQ used).
   kEncodingVexRm,                        //!< VEX|EVEX [RM].
   kEncodingVexRm_ZDI,                    //!< VEX|EVEX [RM<ZDI>].
   kEncodingVexRm_Wx,                     //!< VEX|EVEX [RM] (propagates VEX|EVEX.W if GPQ used).
@@ -200,20 +202,10 @@ struct AdditionalInfo {
   inline const uint8_t* featuresEnd() const noexcept { return _features + ASMJIT_ARRAY_SIZE(_features); }
 };
 
-// ${NameLimits:Begin}
-// ------------------- Automatically generated, do not edit -------------------
-enum : uint32_t { kMaxNameSize = 17 };
-// ----------------------------------------------------------------------------
-// ${NameLimits:End}
-
-struct InstNameIndex {
-  uint16_t start;
-  uint16_t end;
-};
-
 struct RWInfo {
   enum Category : uint8_t {
-    kCategoryGeneric,
+    kCategoryGeneric = 0,
+    kCategoryGenericEx,
     kCategoryMov,
     kCategoryMovabs,
     kCategoryImul,
@@ -295,9 +287,9 @@ extern const uint32_t _mainOpcodeTable[];
 extern const uint32_t _altOpcodeTable[];
 
 #ifndef ASMJIT_NO_TEXT
-extern const uint32_t _instNameIndexTable[];
+extern const InstNameIndex instNameIndex;
 extern const char _instNameStringTable[];
-extern const InstNameIndex instNameIndex[26];
+extern const uint32_t _instNameIndexTable[];
 #endif // !ASMJIT_NO_TEXT
 
 extern const AdditionalInfo _additionalInfoTable[];

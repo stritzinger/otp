@@ -14,10 +14,10 @@
 #include "../core/misc_p.h"
 #include "../core/support.h"
 #include "../arm/armformatter_p.h"
+#include "../arm/armutils.h"
 #include "../arm/a64assembler.h"
 #include "../arm/a64emithelper_p.h"
 #include "../arm/a64instdb_p.h"
-#include "../arm/a64utils.h"
 
 ASMJIT_BEGIN_SUB_NAMESPACE(a64)
 
@@ -398,14 +398,6 @@ static inline bool encodeLMH(uint32_t sizeField, uint32_t elementIndex, LMHImm* 
   return elementIndex <= maxElementIndex;
 }
 
-// [.......A|B.......|.......C|D.......|.......E|F.......|.......G|H.......]
-static inline uint32_t encodeImm64ByteMaskToImm8(uint64_t imm) noexcept {
-  return uint32_t(((imm >> (7  - 0)) & 0b00000011) | // [.......G|H.......]
-                  ((imm >> (23 - 2)) & 0b00001100) | // [.......E|F.......]
-                  ((imm >> (39 - 4)) & 0b00110000) | // [.......C|D.......]
-                  ((imm >> (55 - 6)) & 0b11000000)); // [.......A|B.......]
-}
-
 // a64::Assembler - Opcode
 // =======================
 
@@ -724,8 +716,6 @@ static inline bool checkValidRegs(const Operand_& o0, const Operand_& o1, const 
 
 Assembler::Assembler(CodeHolder* code) noexcept : BaseAssembler() {
   _archMask = uint64_t(1) << uint32_t(Arch::kAArch64);
-  assignEmitterFuncs(this);
-
   if (code)
     code->attach(this);
 }
@@ -811,7 +801,7 @@ Error Assembler::_emit(InstId instId, const Operand_& o0, const Operand_& o1, co
       Operand_ opArray[Globals::kMaxOpCount];
       EmitterUtils::opArrayFromEmitArgs(opArray, o0, o1, o2, opExt);
 
-      err = _funcs.validate(arch(), BaseInst(instId, options, _extraReg), opArray, Globals::kMaxOpCount, ValidationFlags::kNone);
+      err = _funcs.validate(BaseInst(instId, options, _extraReg), opArray, Globals::kMaxOpCount, ValidationFlags::kNone);
       if (ASMJIT_UNLIKELY(err))
         goto Failed;
     }
@@ -2280,7 +2270,7 @@ Error Assembler::_emit(InstId instId, const Operand_& o0, const Operand_& o1, co
         if (m.hasBaseReg()) {
           // [Base {Offset | Index}]
           if (m.hasIndex()) {
-            uint32_t opt = armShiftOpToLdStOptMap[m.predicate()];
+            uint32_t opt = armShiftOpToLdStOptMap[size_t(m.shiftOp())];
             if (opt == 0xFF)
               goto InvalidAddress;
 
@@ -3753,7 +3743,7 @@ Case_BaseLdurStur:
             goto InvalidImmediate;
         }
         else if (imm) {
-          shift = Support::ctz(imm) & 0x7u;
+          shift = Support::ctz(imm) & ~0x7u;
           imm >>= shift;
 
           if (imm > 0xFFu || shift > maxShift)
@@ -4056,7 +4046,7 @@ Case_BaseLdurStur:
             goto InvalidImmediate;
 
           if (Utils::isByteMaskImm8(imm64)) {
-            imm8 = encodeImm64ByteMaskToImm8(imm64);
+            imm8 = Utils::encodeImm64ByteMaskToImm8(imm64);
           }
           else {
             // Change from D to S and from 64-bit imm to 32-bit imm if this
@@ -4443,7 +4433,7 @@ Case_BaseLdurStur:
         if (m.hasBaseReg()) {
           // [Base {Offset | Index}]
           if (m.hasIndex()) {
-            uint32_t opt = armShiftOpToLdStOptMap[m.predicate()];
+            uint32_t opt = armShiftOpToLdStOptMap[size_t(m.shiftOp())];
             if (opt == 0xFFu)
               goto InvalidAddress;
 
@@ -5099,6 +5089,10 @@ Error Assembler::align(AlignMode alignMode, uint32_t alignment) {
 
 Error Assembler::onAttach(CodeHolder* code) noexcept {
   ASMJIT_PROPAGATE(Base::onAttach(code));
+
+  _instructionAlignment = uint8_t(4);
+  assignEmitterFuncs(this);
+
   return kErrorOk;
 }
 

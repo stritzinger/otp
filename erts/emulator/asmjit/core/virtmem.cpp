@@ -6,7 +6,7 @@
 #include "../core/api-build_p.h"
 #ifndef ASMJIT_NO_JIT
 
-#include "../core/osutils.h"
+#include "../core/osutils_p.h"
 #include "../core/string.h"
 #include "../core/support.h"
 #include "../core/virtmem.h"
@@ -22,6 +22,22 @@
   // Linux has a `memfd_create` syscall that we would like to use, if available.
   #if defined(__linux__)
     #include <sys/syscall.h>
+
+    #ifndef MAP_HUGETLB
+      #define MAP_HUGETLB 0x40000
+    #endif // MAP_HUGETLB
+
+    #ifndef MAP_HUGE_SHIFT
+      #define MAP_HUGE_SHIFT 26
+    #endif // MAP_HUGE_SHIFT
+
+    #ifndef MFD_HUGETLB
+      #define MFD_HUGETLB 0x0004
+    #endif // MFD_HUGETLB
+
+    #ifndef MFD_HUGE_SHIFT
+      #define MFD_HUGE_SHIFT 26
+    #endif // MFD_HUGE_SHIFT
   #endif
 
   // Apple recently introduced MAP_JIT flag, which we want to use.
@@ -53,7 +69,7 @@
 
   // Android NDK doesn't provide `shm_open()` and `shm_unlink()`.
   #if !defined(__BIONIC__)
-    #define ASMJIT_HAS_SHM_OPEN_AND_UNLINK
+    #define ASMJIT_HAS_SHM_OPEN
   #endif
 
   #if defined(__APPLE__) && TARGET_OS_OSX && ASMJIT_ARCH_ARM >= 64
@@ -96,12 +112,16 @@ struct ScopedHandle {
   HANDLE value;
 };
 
-static void getVMInfo(Info& vmInfo) noexcept {
+static void detectVMInfo(Info& vmInfo) noexcept {
   SYSTEM_INFO systemInfo;
 
   ::GetSystemInfo(&systemInfo);
   vmInfo.pageSize = Support::alignUpPowerOf2<uint32_t>(systemInfo.dwPageSize);
   vmInfo.pageGranularity = systemInfo.dwAllocationGranularity;
+}
+
+static size_t detectLargePageSize() noexcept {
+  return ::GetLargePageMinimum();
 }
 
 // Returns windows-specific protectFlags from \ref MemoryFlags.
@@ -136,9 +156,23 @@ Error alloc(void** p, size_t size, MemoryFlags memoryFlags) noexcept {
   if (size == 0)
     return DebugUtils::errored(kErrorInvalidArgument);
 
+  DWORD allocationType = MEM_COMMIT | MEM_RESERVE;
   DWORD protectFlags = protectFlagsFromMemoryFlags(memoryFlags);
-  void* result = ::VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protectFlags);
 
+  if (Support::test(memoryFlags, MemoryFlags::kMMapLargePages)) {
+    size_t lpSize = largePageSize();
+
+    // Does it make sense to call VirtualAlloc() if we failed to query large page size?
+    if (lpSize == 0)
+      return DebugUtils::errored(kErrorFeatureNotEnabled);
+
+    if (!Support::isAligned(size, lpSize))
+      return DebugUtils::errored(kErrorInvalidArgument);
+
+    allocationType |= MEM_LARGE_PAGES;
+  }
+
+  void* result = ::VirtualAlloc(nullptr, size, allocationType, protectFlags);
   if (!result)
     return DebugUtils::errored(kErrorOutOfMemory);
 
@@ -148,7 +182,9 @@ Error alloc(void** p, size_t size, MemoryFlags memoryFlags) noexcept {
 
 Error release(void* p, size_t size) noexcept {
   DebugUtils::unused(size);
-  if (ASMJIT_UNLIKELY(!::VirtualFree(p, 0, MEM_RELEASE)))
+  // NOTE: If the `dwFreeType` parameter is MEM_RELEASE, `size` parameter must be zero.
+  constexpr DWORD dwFreeType = MEM_RELEASE;
+  if (ASMJIT_UNLIKELY(!::VirtualFree(p, 0, dwFreeType)))
     return DebugUtils::errored(kErrorInvalidArgument);
   return kErrorOk;
 }
@@ -189,7 +225,7 @@ Error allocDualMapping(DualMapping* dm, size_t size, MemoryFlags memoryFlags) no
     ptr[i] = ::MapViewOfFile(handle.value, desiredAccess, 0, 0, size);
 
     if (ptr[i] == nullptr) {
-      if (i == 0)
+      if (i == 1u)
         ::UnmapViewOfFile(ptr[0]);
       return DebugUtils::errored(kErrorOutOfMemory);
     }
@@ -220,15 +256,16 @@ Error releaseDualMapping(DualMapping* dm, size_t size) noexcept {
 
 #endif
 
-// Virtual Memory [Posix]
-// ======================
+// Virtual Memory [Unix]
+// =====================
 
 #if !defined(_WIN32)
 
-// Virtual Memory [Posix] - Utilities
-// ==================================
+// Virtual Memory [Unix] - Utilities
+// =================================
 
 // Translates libc errors specific to VirtualMemory mapping to `asmjit::Error`.
+ASMJIT_MAYBE_UNUSED
 static Error asmjitErrorFromErrno(int e) noexcept {
   switch (e) {
     case EACCES:
@@ -251,31 +288,20 @@ static Error asmjitErrorFromErrno(int e) noexcept {
   }
 }
 
-static void getVMInfo(Info& vmInfo) noexcept {
-  uint32_t pageSize = uint32_t(::getpagesize());
-
-  vmInfo.pageSize = pageSize;
-  vmInfo.pageGranularity = Support::max<uint32_t>(pageSize, 65536);
+ASMJIT_MAYBE_UNUSED
+static MemoryFlags maxAccessFlagsToRegularAccessFlags(MemoryFlags memoryFlags) noexcept {
+  static constexpr uint32_t kMaxProtShift = Support::ConstCTZ<uint32_t(MemoryFlags::kMMapMaxAccessRead)>::value;
+  return MemoryFlags(uint32_t(memoryFlags & MemoryFlags::kMMapMaxAccessRWX) >> kMaxProtShift);
 }
 
-#if defined(__APPLE__) && TARGET_OS_OSX
-static int getOSXVersion() noexcept {
-  // MAP_JIT flag required to run unsigned JIT code is only supported by kernel version 10.14+ (Mojave).
-  static std::atomic<int> globalVersion;
-
-  int ver = globalVersion.load();
-  if (!ver) {
-    struct utsname osname {};
-    uname(&osname);
-    ver = atoi(osname.release);
-    globalVersion.store(ver);
-  }
-
-  return ver;
+ASMJIT_MAYBE_UNUSED
+static MemoryFlags regularAccessFlagsToMaxAccessFlags(MemoryFlags memoryFlags) noexcept {
+  static constexpr uint32_t kMaxProtShift = Support::ConstCTZ<uint32_t(MemoryFlags::kMMapMaxAccessRead)>::value;
+  return MemoryFlags(uint32_t(memoryFlags & MemoryFlags::kAccessRWX) << kMaxProtShift);
 }
-#endif // __APPLE__ && TARGET_OS_OSX
 
 // Returns `mmap()` protection flags from \ref MemoryFlags.
+ASMJIT_MAYBE_UNUSED
 static int mmProtFromMemoryFlags(MemoryFlags memoryFlags) noexcept {
   int protection = 0;
   if (Support::test(memoryFlags, MemoryFlags::kAccessRead)) protection |= PROT_READ;
@@ -284,8 +310,87 @@ static int mmProtFromMemoryFlags(MemoryFlags memoryFlags) noexcept {
   return protection;
 }
 
-// Virtual Memory [Posix] - Anonymus Memory
-// ========================================
+// Returns maximum protection flags from `memoryFlags`.
+//
+// Uses:
+//   - `PROT_MPROTECT()` on NetBSD.
+//   - `PROT_MAX()` when available on other BSDs.
+ASMJIT_MAYBE_UNUSED
+static inline int mmMaxProtFromMemoryFlags(MemoryFlags memoryFlags) noexcept {
+  MemoryFlags acc = maxAccessFlagsToRegularAccessFlags(memoryFlags);
+  if (acc != MemoryFlags::kNone) {
+#if defined(__NetBSD__) && defined(PROT_MPROTECT)
+    return PROT_MPROTECT(mmProtFromMemoryFlags(acc));
+#elif defined(PROT_MAX)
+    return PROT_MAX(mmProtFromMemoryFlags(acc));
+#else
+    return 0;
+#endif
+  }
+
+  return 0;
+}
+
+static void detectVMInfo(Info& vmInfo) noexcept {
+  uint32_t pageSize = uint32_t(::getpagesize());
+
+  vmInfo.pageSize = pageSize;
+  vmInfo.pageGranularity = Support::max<uint32_t>(pageSize, 65536);
+}
+
+static size_t detectLargePageSize() noexcept {
+#if defined(__APPLE__) && defined(VM_FLAGS_SUPERPAGE_SIZE_2MB) && ASMJIT_ARCH_X86
+  return 2u * 1024u * 1024u;
+#elif defined(__FreeBSD__)
+  Support::Array<size_t, 2> pageSize;
+  // TODO: Does it return unsigned?
+  return (getpagesizes(pageSize.data(), 2) < 2) ? 0 : uint32_t(pageSize[1]);
+#elif defined(__linux__)
+  StringTmp<128> storage;
+  if (OSUtils::readFile("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size", storage, 16) != kErrorOk || storage.empty())
+    return 0u;
+
+  // The first value should be the size of the page (hpage_pmd_size).
+  size_t largePageSize = 0;
+
+  const char* buf = storage.data();
+  size_t bufSize = storage.size();
+
+  for (size_t i = 0; i < bufSize; i++) {
+    uint32_t digit = uint32_t(uint8_t(buf[i]) - uint8_t('0'));
+    if (digit >= 10u)
+      break;
+    largePageSize = largePageSize * 10 + digit;
+  }
+
+  if (Support::isPowerOf2(largePageSize))
+    return largePageSize;
+  else
+    return 0u;
+#else
+  return 0u;
+#endif
+}
+
+#if defined(__APPLE__) && TARGET_OS_OSX
+static long getOSXVersion() noexcept {
+  // MAP_JIT flag required to run unsigned JIT code is only supported by kernel version 10.14+ (Mojave).
+  static std::atomic<long> globalVersion;
+
+  long ver = globalVersion.load();
+  if (!ver) {
+    struct utsname osname {};
+    uname(&osname);
+    ver = strtol(osname.release, nullptr, 10);
+    globalVersion.store(ver);
+  }
+
+  return ver;
+}
+#endif // __APPLE__ && TARGET_OS_OSX
+
+// Virtual Memory [Posix] - Anonymous Memory
+// =========================================
 
 #if defined(ASMJIT_ANONYMOUS_MEMORY_USE_FD)
 
@@ -332,6 +437,11 @@ public:
 
   Error open(bool preferTmpOverDevShm) noexcept {
 #if defined(__linux__) && defined(__NR_memfd_create)
+
+#if !defined(MFD_CLOEXEC)
+  #define MFD_CLOEXEC 0x0001u
+#endif
+
     // Linux specific 'memfd_create' - if the syscall returns `ENOSYS` it means
     // it's not available and we will never call it again (would be pointless).
     //
@@ -344,7 +454,7 @@ public:
     static volatile uint32_t memfd_create_not_supported;
 
     if (!memfd_create_not_supported) {
-      _fd = (int)syscall(__NR_memfd_create, "vmem", 0);
+      _fd = (int)syscall(__NR_memfd_create, "vmem", MFD_CLOEXEC);
       if (ASMJIT_LIKELY(_fd >= 0))
         return kErrorOk;
 
@@ -356,7 +466,7 @@ public:
     }
 #endif
 
-#if defined(SHM_ANON)
+#if defined(ASMJIT_HAS_SHM_OPEN) && defined(SHM_ANON)
     // Originally FreeBSD extension, apparently works in other BSDs too.
     DebugUtils::unused(preferTmpOverDevShm);
     _fd = ::shm_open(SHM_ANON, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
@@ -391,7 +501,7 @@ public:
           return kErrorOk;
         }
       }
-#ifdef ASMJIT_HAS_SHM_OPEN_AND_UNLINK
+#if defined(ASMJIT_HAS_SHM_OPEN)
       else {
         _tmpName.assignFormat(kShmFormat, (unsigned long long)bits);
         _fd = ::shm_open(_tmpName.data(), O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
@@ -415,7 +525,7 @@ public:
     FileType type = _fileType;
     _fileType = kFileTypeNone;
 
-#ifdef ASMJIT_HAS_SHM_OPEN_AND_UNLINK
+#ifdef ASMJIT_HAS_SHM_OPEN
     if (type == kFileTypeShm) {
       ::shm_unlink(_tmpName.data());
       return;
@@ -511,9 +621,9 @@ static bool hasHardenedRuntime() noexcept {
 
   uint32_t flag = globalHardenedFlag.load();
   if (flag == kHardenedFlagUnknown) {
-    uint32_t pageSize = uint32_t(::getpagesize());
-
+    size_t pageSize = size_t(::getpagesize());
     void* ptr = mmap(nullptr, pageSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
     if (ptr == MAP_FAILED) {
       flag = kHardenedFlagEnabled;
     }
@@ -521,6 +631,7 @@ static bool hasHardenedRuntime() noexcept {
       flag = kHardenedFlagDisabled;
       munmap(ptr, pageSize);
     }
+
     globalHardenedFlag.store(flag);
   }
 
@@ -542,14 +653,17 @@ static inline bool hasMapJitSupport() noexcept {
 #endif
 }
 
-// Returns either MAP_JIT or 0 based on `flags` and the host operating system.
+// Returns either MAP_JIT or 0 based on `memoryFlags` and the host operating system.
 static inline int mmMapJitFromMemoryFlags(MemoryFlags memoryFlags) noexcept {
 #if defined(__APPLE__)
   // Always use MAP_JIT flag if user asked for it (could be used for testing on non-hardened processes) and detect
   // whether it must be used when the process is actually hardened (in that case it doesn't make sense to rely on
   // user `memoryFlags`).
+  //
+  // MAP_JIT is not required when dual-mapping memory and is incompatible with MAP_SHARED, so it will not be
+  // added when the latter is enabled.
   bool useMapJit = (Support::test(memoryFlags, MemoryFlags::kMMapEnableMapJit) || hasHardenedRuntime())
-    && !Support::test(memoryFlags, MemoryFlags::kMapShared);
+                   && !Support::test(memoryFlags, MemoryFlags::kMapShared);
   if (useMapJit)
     return hasMapJitSupport() ? int(MAP_JIT) : 0;
   else
@@ -558,39 +672,6 @@ static inline int mmMapJitFromMemoryFlags(MemoryFlags memoryFlags) noexcept {
   DebugUtils::unused(memoryFlags);
   return 0;
 #endif
-}
-
-ASMJIT_MAYBE_UNUSED
-static MemoryFlags maxAccessFlagsToRegularAccessFlags(MemoryFlags memoryFlags) noexcept {
-  static constexpr uint32_t kMaxProtShift = Support::ConstCTZ<uint32_t(MemoryFlags::kMMapMaxAccessRead)>::value;
-  return MemoryFlags(uint32_t(memoryFlags & MemoryFlags::kMMapMaxAccessRWX) >> kMaxProtShift);
-}
-
-ASMJIT_MAYBE_UNUSED
-static MemoryFlags regularAccessFlagsToMaxAccessFlags(MemoryFlags memoryFlags) noexcept {
-  static constexpr uint32_t kMaxProtShift = Support::ConstCTZ<uint32_t(MemoryFlags::kMMapMaxAccessRead)>::value;
-  return MemoryFlags(uint32_t(memoryFlags & MemoryFlags::kAccessRWX) << kMaxProtShift);
-}
-
-// Returns maximum protection flags from `memoryFlags`.
-//
-// Uses:
-//   - `PROT_MPROTECT()` on NetBSD.
-//   - `PROT_MAX()` when available(BSD).
-ASMJIT_MAYBE_UNUSED
-static inline int mmMaxProtFromMemoryFlags(MemoryFlags memoryFlags) noexcept {
-  MemoryFlags acc = maxAccessFlagsToRegularAccessFlags(memoryFlags);
-  if (acc != MemoryFlags::kNone) {
-#if defined(__NetBSD__) && defined(PROT_MPROTECT)
-    return PROT_MPROTECT(mmProtFromMemoryFlags(acc));
-#elif defined(PROT_MAX)
-    return PROT_MAX(mmProtFromMemoryFlags(acc));
-#else
-    return 0;
-#endif
-  }
-
-  return 0;
 }
 
 static HardenedRuntimeFlags getHardenedRuntimeFlags() noexcept {
@@ -617,9 +698,33 @@ static Error mapMemory(void** p, size_t size, MemoryFlags memoryFlags, int fd = 
   if (fd == -1)
     mmFlags |= MAP_ANONYMOUS;
 
+  bool useLargePages = Support::test(memoryFlags, VirtMem::MemoryFlags::kMMapLargePages);
+
+  if (useLargePages) {
+#if defined(__linux__)
+    size_t lpSize = largePageSize();
+    if (lpSize == 0)
+      return DebugUtils::errored(kErrorFeatureNotEnabled);
+
+    if (!Support::isAligned(size, lpSize))
+      return DebugUtils::errored(kErrorInvalidArgument);
+
+    unsigned lpSizeLog2 = Support::ctz(lpSize);
+    mmFlags |= int(unsigned(MAP_HUGETLB) | (lpSizeLog2 << MAP_HUGE_SHIFT));
+#else
+    return DebugUtils::errored(kErrorFeatureNotEnabled);
+#endif // __linux__
+  }
+
   void* ptr = mmap(nullptr, size, protection, mmFlags, fd, offset);
   if (ptr == MAP_FAILED)
     return DebugUtils::errored(asmjitErrorFromErrno(errno));
+
+#if defined(MADV_HUGEPAGE)
+  if (useLargePages) {
+    madvise(ptr, size, MADV_HUGEPAGE);
+  }
+#endif
 
   *p = ptr;
   return kErrorOk;
@@ -734,7 +839,7 @@ Error allocDualMapping(DualMapping* dm, size_t size, MemoryFlags memoryFlags) no
   dm->rw = ptr[1];
   return kErrorOk;
 #else
-  #error "[asmjit] VirtMem::allocDualMapping() has no implementation"
+  #error "[asmjit] VirtMem::allocDualMapping() doesn't have implementation for the target OS and compiler"
 #endif
 }
 
@@ -774,13 +879,29 @@ Info info() noexcept {
 
   if (!vmInfoInitialized.load()) {
     Info localMemInfo;
-    getVMInfo(localMemInfo);
+    detectVMInfo(localMemInfo);
 
     vmInfo = localMemInfo;
     vmInfoInitialized.store(1u);
   }
 
   return vmInfo;
+}
+
+size_t largePageSize() noexcept {
+  static std::atomic<size_t> largePageSize;
+  static constexpr size_t kNotAvailable = 1;
+
+  size_t size = largePageSize.load();
+  if (ASMJIT_LIKELY(size > kNotAvailable))
+    return size;
+
+  if (size == kNotAvailable)
+    return 0;
+
+  size = detectLargePageSize();
+  largePageSize.store(size != 0 ? size : kNotAvailable);
+  return size;
 }
 
 // Virtual Memory - Hardened Runtime Info
@@ -803,8 +924,8 @@ void protectJitMemory(ProtectJitAccess access) noexcept {
 
 ASMJIT_END_SUB_NAMESPACE
 
-// JitAllocator - Tests
-// ====================
+// Virtual Memory - Tests
+// ======================
 
 #if defined(ASMJIT_TEST)
 ASMJIT_BEGIN_NAMESPACE
@@ -815,6 +936,9 @@ UNIT(virt_mem) {
   INFO("VirtMem::info():");
   INFO("  pageSize: %zu", size_t(vmInfo.pageSize));
   INFO("  pageGranularity: %zu", size_t(vmInfo.pageGranularity));
+
+  INFO("VirtMem::largePageSize():");
+  INFO("  largePageSize: %zu", size_t(VirtMem::largePageSize()));
 
   VirtMem::HardenedRuntimeInfo hardenedRtInfo = VirtMem::hardenedRuntimeInfo();
   VirtMem::HardenedRuntimeFlags hardenedFlags = hardenedRtInfo.flags;

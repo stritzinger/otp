@@ -2873,7 +2873,7 @@ AS_IF([test ${enable_jit} != no],
                 # These platforms have dedicated system calls for clearing
                 # instruction cache, and don't require us to manually issue
                 # instruction barriers on all threads.
-                JIT_ARCH=arm
+                JIT_ARCH=aarch64
               ;;
               *)
                 # We need to use `DC CVAU`, `IC IVAU`, and `ISB SY` to clear
@@ -2881,13 +2881,26 @@ AS_IF([test ${enable_jit} != no],
                 # ETHR_CHK_GCC_ATOMIC_OPS([]).
 
                 if test "$ethr_arm_isb_sy_instr_val$ethr_arm_dc_cvau_instr_val$ethr_arm_ic_ivau_instr_val" = "111"; then
-                  JIT_ARCH=arm
+                  JIT_ARCH=aarch64
                 else
                   enable_jit=no
                   AC_MSG_WARN([JIT disabled due to lack of cache-clearing instructions])
                 fi
               ;;
            esac
+           ;;
+        arm)
+            # Using ARM 32 equivalents for `DC CVAU`, `IC IVAU`, and `ISB SY` from arm64
+            # DC CVAU -> DCCMVAU
+            # IC IVAU -> ICIMVAU
+            # ISB SY -> ???
+            if test "$ethr_arm_isb_sy_instr_val$ethr_arm_dccmvau_instr_val$ethr_arm_icimvau_instr_val" = "111"; then
+              JIT_ARCH=aarch32
+            else
+              enable_jit=no
+              AC_MSG_ERROR([JIT disabled due to lack of cache-clearing instructions])
+            fi
+            AC_MSG_WARN([requesting ARM arch ${ARCH} for JIT])
            ;;
         *)
            if test ${enable_jit} = yes; then
@@ -2967,7 +2980,7 @@ AS_IF([test ${enable_jit} != no],
                   [Define if we can use the native stack for Erlang code])
       fi
       ;;
-    arm)
+    aarch64|aarch32)
       # ARM JIT doesn't support native stack due to its 16-byte alignment
       # requirement.
       enable_native_stack=no

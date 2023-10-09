@@ -339,7 +339,7 @@ ASMJIT_FAVOR_SIZE Error EmitHelper::emitProlog(const FuncFrame& frame) {
       else
         ASMJIT_PROPAGATE(emitter->emit(insts.pairInstId, regs[0], regs[1], mem));
 
-      mem.resetToFixedOffset();
+      mem.resetOffsetMode();
 
       if (i == 0 && frame.hasPreservedFP()) {
         ASMJIT_PROPAGATE(emitter->mov(x29, sp));
@@ -421,7 +421,7 @@ ASMJIT_FAVOR_SIZE Error EmitHelper::emitEpilog(const FuncFrame& frame) {
       else
         ASMJIT_PROPAGATE(emitter->emit(insts.pairInstId, regs[0], regs[1], mem));
 
-      mem.resetToFixedOffset();
+      mem.resetOffsetMode();
     }
   }
 
