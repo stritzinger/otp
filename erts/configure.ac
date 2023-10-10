@@ -2890,17 +2890,24 @@ AS_IF([test ${enable_jit} != no],
            esac
            ;;
         arm)
-            # Using ARM 32 equivalents for `DC CVAU`, `IC IVAU`, and `ISB SY` from arm64
-            # DC CVAU -> DCCMVAU
-            # IC IVAU -> ICIMVAU
-            # ISB SY -> ???
-            if test "$ethr_arm_isb_sy_instr_val$ethr_arm_dccmvau_instr_val$ethr_arm_icimvau_instr_val" = "111"; then
-              JIT_ARCH=aarch32
-            else
-              enable_jit=no
-              AC_MSG_ERROR([JIT disabled due to lack of cache-clearing instructions])
-            fi
-            AC_MSG_WARN([requesting ARM arch ${ARCH} for JIT])
+            case "$OPSYS" in
+            linux) 
+              JIT_ARCH=arm
+              AC_MSG_WARN([requesting LINUX ARM arch ${ARCH} for JIT])
+            ;;
+            *)
+              # Using ARM 32 equivalents for `DC CVAU`, `IC IVAU`, and `ISB SY` from arm64
+              # DC CVAU -> DCCMVAU ()
+              # IC IVAU -> ICIMVAU ()
+              if test "$ethr_arm_isb_sy_instr_val$ethr_arm_dccmvau_instr_val$ethr_arm_icimvau_instr_val" = "111"; then
+                JIT_ARCH=arm
+              else
+                enable_jit=no
+                AC_MSG_ERROR([JIT disabled due to lack of cache-clearing instructions])
+              fi
+              AC_MSG_WARN([requesting ARM arch ${ARCH} for JIT])
+              ;;
+            esac
            ;;
         *)
            if test ${enable_jit} = yes; then
