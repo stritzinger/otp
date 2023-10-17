@@ -488,7 +488,9 @@ extern "C"
          * enough for them to issue an instruction synchronization barrier. */
         __asm__ __volatile__("dsb ish\n" ::: "memory");
 #elif defined(__arm__) && defined(__linux__)
-        __clear_cache((char *)address, ((char*)address) + size));
+        __clear_cache((char *)address, ((char*)address) + size);
+#elif defined(__arm__) && defined(__rtems__)
+        alt_cache_system_purge((char *)address, ((char*)address) + size);
 #elif defined(__arm__) && defined(BEAMASM_MANUAL_ICACHE_FLUSHING)
         /* Same for aarch64 but using dccmvau and icimvau*/
         UWord start, end, stride;

@@ -2891,9 +2891,9 @@ AS_IF([test ${enable_jit} != no],
            ;;
         arm)
             case "$OPSYS" in
-            linux) 
+            linux|rtems) 
               JIT_ARCH=arm
-              AC_MSG_WARN([requesting LINUX ARM arch ${ARCH} for JIT])
+              AC_MSG_WARN([requesting ${OPSYS} ARM arch ${ARCH} for JIT])
             ;;
             *)
               # Using ARM 32 equivalents for `DC CVAU`, `IC IVAU`, and `ISB SY` from arm64
