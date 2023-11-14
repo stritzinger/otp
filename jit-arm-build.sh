@@ -1,6 +1,5 @@
 ./otp_build update_configure --no-commit && \
-./otp_build configure \
-    --xcomp-conf=$(pwd)/xcomp/erl-xcomp-arm-linux-custom.conf && \
+./otp_build configure --xcomp-conf=xcomp/erl-xcomp-arm-linux-custom.conf && \
 ./otp_build boot -a && \
 rm -rf RELEASE/* && \
 mkdir -p RELEASE && \
