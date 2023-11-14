@@ -30,4 +30,12 @@
   #include "./x86.h"
 #endif
 
+#ifndef ASMJIT_NO_A32
+  #include "./a32.h"
+#endif
+
+#ifndef ASMJIT_NO_A64
+  #include "./a64.h"
+#endif
+
 #endif // ASMJIT_ASMJIT_H_INCLUDED
