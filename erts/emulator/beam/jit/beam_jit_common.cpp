@@ -229,7 +229,7 @@ void BeamModuleAssembler::codegen(JitAllocator *allocator,
     code_hdr_rw->on_load = getOnLoad();
 
     for (unsigned i = 0; i < functions.size(); i++) {
-        ErtsCodeInfo *ci = (ErtsCodeInfo *)getCode(functions[i]);
+        ErtsCodeInfo *ci = (ErtsCodeInfo *)getCode((char *)functions[i]);
         code_hdr_rw->functions[i] = ci;
     }
 
@@ -382,7 +382,7 @@ void BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
         const ErtsCodeInfo *ci;
         Sint n;
 
-        start = getCode(functions[i]);
+        start = getCode((char *)functions[i]);
         ci = (const ErtsCodeInfo *)start;
 
         stop = ((const char *)erts_codeinfo_to_code(ci));
@@ -410,7 +410,7 @@ void BeamModuleAssembler::register_metadata(const BeamCodeHeader *header) {
         /* The actual code */
         start = stop;
         if (i + 1 < functions.size()) {
-            stop = getCode(functions[i + 1]);
+            stop = getCode((char *)functions[i + 1]);
         } else {
             stop = getCode(code_end);
         }
