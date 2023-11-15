@@ -127,6 +127,41 @@ class BeamModuleAssembler : public BeamAssembler,
                             public BeamModuleAssemblerCommon {
     BeamGlobalAssembler *ga;
 
+public:
+
+    BeamModuleAssembler(BeamGlobalAssembler *ga,
+                        Eterm mod,
+                        int num_labels,
+                        const BeamFile *file = NULL);
+    BeamModuleAssembler(BeamGlobalAssembler *ga,
+                        Eterm mod,
+                        int num_labels,
+                        int num_functions,
+                        const BeamFile *file = NULL);
+
+    void register_metadata(const BeamCodeHeader *header);
+
+    void codegen(JitAllocator *allocator,
+                 const void **executable_ptr,
+                 void **writable_ptr,
+                 const BeamCodeHeader *in_hdr,
+                 const BeamCodeHeader **out_exec_hdr,
+                 BeamCodeHeader **out_rw_hdr);
+
+    void codegen(JitAllocator *allocator,
+                 const void **executable_ptr,
+                 void **writable_ptr);
+
+    void codegen(char *buff, size_t len);
+
+    BeamCodeHeader *getCodeHeader(void);
+    const ErtsCodeInfo *getOnLoad(void);
+
+    unsigned patchCatches(char *rw_base);
+    void patchLambda(char *rw_base, unsigned index, const ErlFunEntry *fe);
+    void patchLiteral(char *rw_base, unsigned index, Eterm lit);
+    void patchImport(char *rw_base, unsigned index, const Export *import);
+    void patchStrings(char *rw_base, const byte *string);
 };
 
 void beamasm_metadata_update(std::string module_name,
