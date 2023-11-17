@@ -139,7 +139,7 @@ public:
                         int num_functions,
                         const BeamFile *file = NULL);
 
-    void register_metadata(const BeamCodeHeader *header);
+    bool emit(unsigned op, const Span<ArgVal> &args);
 
     void codegen(JitAllocator *allocator,
                  const void **executable_ptr,
@@ -153,6 +153,24 @@ public:
                  void **writable_ptr);
 
     void codegen(char *buff, size_t len);
+
+    void register_metadata(const BeamCodeHeader *header);
+
+    ErtsCodePtr getCode(unsigned label);
+    ErtsCodePtr getLambda(unsigned index);
+
+    void *getCode(Label label) {
+        return BeamAssembler::getCode(label);
+    }
+
+    byte *getCode(char *labelName) {
+        return BeamAssembler::getCode(labelName);
+    }
+
+    unsigned getCodeSize() {
+        ASSERT(code.hasBaseAddress());
+        return code.codeSize();
+    }
 
     BeamCodeHeader *getCodeHeader(void);
     const ErtsCodeInfo *getOnLoad(void);
