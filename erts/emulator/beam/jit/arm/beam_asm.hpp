@@ -71,7 +71,7 @@ protected:
 
     /* Points at x_reg_array inside an ErtsSchedulerRegisters struct, allowing
      * the aux_regs field to be addressed with an 8-bit displacement. */
-    const a32::Gp registers = a32::r10;
+    const a32::Gp scheduler_registers = a32::r10;
 
     const a32::Gp E = a32::fp;
 
@@ -91,32 +91,19 @@ protected:
             offsetof(ErtsSchedulerRegisters, aux_regs.d.erts_msacc_cache));
 #endif
 
-    /* * * * * * * * * */
-#ifdef WIN32
-    /* ???? */
-#else
+
     const a32::Gp ARG1 = a32::r1;
     const a32::Gp ARG2 = a32::r2;
     const a32::Gp ARG3 = a32::r3;
     const a32::Gp ARG4 = a32::r4;
     const a32::Gp ARG5 = a32::r5;
 
-#endif
-
     const a32::Gp RET = a32::r0;
 
-    // const a32::Mem TMP_MEM1q = getSchedulerRegRef(
-    //         offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[0]));
-    // const a32::Mem TMP_MEM2q = getSchedulerRegRef(
-    //         offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[1]));
-    // const a32::Mem TMP_MEM3q = getSchedulerRegRef(
-    //         offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[2]));
-    // const a32::Mem TMP_MEM4q = getSchedulerRegRef(
-    //         offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[3]));
-    // const a32::Mem TMP_MEM5q = getSchedulerRegRef(
-    //         offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[4]));
-
-
+    constexpr arm::Mem getSchedulerRegRef(int offset) const {
+        ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
+        return arm::Mem(scheduler_registers, offset);
+    }    
 };
 
 
@@ -180,6 +167,8 @@ public:
     void patchLiteral(char *rw_base, unsigned index, Eterm lit);
     void patchImport(char *rw_base, unsigned index, const Export *import);
     void patchStrings(char *rw_base, const byte *string);
+    
+
 };
 
 void beamasm_metadata_update(std::string module_name,
