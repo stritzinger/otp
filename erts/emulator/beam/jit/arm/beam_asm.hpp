@@ -167,8 +167,11 @@ public:
     void patchLiteral(char *rw_base, unsigned index, Eterm lit);
     void patchImport(char *rw_base, unsigned index, const Export *import);
     void patchStrings(char *rw_base, const byte *string);
-    
 
+protected:
+
+#include "beamasm_protos.h"
+   
 };
 
 void beamasm_metadata_update(std::string module_name,
