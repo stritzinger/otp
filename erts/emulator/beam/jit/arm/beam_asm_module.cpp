@@ -19,6 +19,7 @@
  */
 
 #include <algorithm>
+#include <sstream>
 #include <float.h>
 
 #include "beam_asm.hpp"
@@ -111,34 +112,34 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *ga,
 //     emit_nyi("<unspecified>");
 // }
 
-// bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
-//     check_pending_stubs();
+bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
+    // check_pending_stubs();
 
-// #ifdef BEAMASM_DUMP_SIZES
-//     size_t before = a.offset();
-// #endif
+#ifdef BEAMASM_DUMP_SIZES
+    size_t before = a.offset();
+#endif
 
-//     comment(opc[specific_op].name);
+    comment(opc[specific_op].name);
 
-// #define InstrCnt()
-//     switch (specific_op) {
-// #include "beamasm_emit.h"
-//     default:
-//         ERTS_ASSERT(0 && "Invalid instruction");
-//         break;
-//     }
+#define InstrCnt()
+    switch (specific_op) {
+#include "beamasm_emit.h"
+    default:
+        ERTS_ASSERT(0 && "Invalid instruction");
+        break;
+    }
 
-// #ifdef BEAMASM_DUMP_SIZES
-//     {
-//         std::lock_guard<std::mutex> lock(size_lock);
+#ifdef BEAMASM_DUMP_SIZES
+    {
+        std::lock_guard<std::mutex> lock(size_lock);
 
-//         sizes[opc[specific_op].name].first++;
-//         sizes[opc[specific_op].name].second += a.offset() - before;
-//     }
-// #endif
+        sizes[opc[specific_op].name].first++;
+        sizes[opc[specific_op].name].second += a.offset() - before;
+    }
+#endif
 
-//     return true;
-// }
+    return true;
+}
 
 // /*
 //  * Here follows meta instructions.
