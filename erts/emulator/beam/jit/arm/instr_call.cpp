@@ -24,3 +24,12 @@ extern "C"
 {
 #include "beam_common.h"
 }
+
+/* Handles save_calls for remote calls. When the active code index is
+ * ERTS_SAVE_CALLS_CODE_IX, all remote calls will land here.
+ */
+void BeamGlobalAssembler::emit_dispatch_save_calls_export() {
+
+    // TODO
+
+}

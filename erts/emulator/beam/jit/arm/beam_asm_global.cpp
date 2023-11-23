@@ -90,3 +90,36 @@ BeamGlobalAssembler::BeamGlobalAssembler(JitAllocator *allocator)
         ptrs[val.first] = (fptr)getCode(labels[val.first]);
     }
 }
+
+void BeamGlobalAssembler::emit_process_exit() {
+    // TODO
+}
+
+/* Handles trapping to exports from C code, setting registers up in the same
+ * manner a normal call_ext instruction would so that save_calls, tracing, and
+ * so on will work.
+ *
+ * Assumes that c_p->current points into the MFA of an export entry. */
+void BeamGlobalAssembler::emit_bif_export_trap() {
+    // TODO
+}
+
+
+/* Handles export breakpoints, error handler, jump tracing, and so on.
+ *
+ */
+void BeamGlobalAssembler::emit_export_trampoline() {
+
+    // TODO
+}
+
+extern "C"
+{
+    /* GDB puts a breakpoint in this function.
+     *
+     * Has to be on another file than the caller as otherwise gcc may
+     * optimize away the call. */
+    void ERTS_NOINLINE __jit_debug_register_code(void);
+    void ERTS_NOINLINE __jit_debug_register_code(void) {
+    }
+}

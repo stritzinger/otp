@@ -19,3 +19,23 @@
  */
 
 #include "beam_asm.hpp"
+
+
+/* Calls to functions that are being purged (but haven't finished) land here.
+ *
+ *
+ * */
+void BeamGlobalAssembler::emit_unloaded_fun() {
+    // TODO
+}
+
+
+/* Handles save_calls for local funs, which is a side-effect of our calling
+ * convention.
+ *
+ * When the active code index is ERTS_SAVE_CALLS_CODE_IX, all local fun calls
+ * will land here. */
+void BeamGlobalAssembler::emit_dispatch_save_calls_fun() {
+   
+   // TODO
+}
