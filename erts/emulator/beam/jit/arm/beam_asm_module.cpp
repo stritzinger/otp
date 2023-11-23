@@ -122,12 +122,12 @@ bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
     comment(opc[specific_op].name);
 
 #define InstrCnt()
-    switch (specific_op) {
-#include "beamasm_emit.h"
-    default:
-        ERTS_ASSERT(0 && "Invalid instruction");
-        break;
-    }
+//     switch (specific_op) {
+// #include "beamasm_emit.h"
+//     default:
+//         ERTS_ASSERT(0 && "Invalid instruction");
+//         break;
+//     }
 
 #ifdef BEAMASM_DUMP_SIZES
     {
