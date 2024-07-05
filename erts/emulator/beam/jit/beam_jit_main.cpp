@@ -76,6 +76,13 @@ static BeamGlobalAssembler *bga;
 static BeamModuleAssembler *bma;
 static CpuInfo cpuinfo;
 
+#if defined(__arm__) && !(defined(WIN32) || defined(__APPLE__)) &&         \
+        defined(__GNUC__) && defined(ERTS_THR_INSTRUCTION_BARRIER) &&          \
+        ETHR_HAVE_GCC_ASM_ARM_ICIMVAU_INSTRUCTION &&                           \
+        ETHR_HAVE_GCC_ASM_ARM_DCCMVAU_INSTRUCTION
+#    define BEAMASM_MANUAL_ICACHE_FLUSHING
+#endif
+
 #if defined(__aarch64__) && !(defined(WIN32) || defined(__APPLE__)) &&         \
         defined(__GNUC__) && defined(ERTS_THR_INSTRUCTION_BARRIER) &&          \
         ETHR_HAVE_GCC_ASM_ARM_IC_IVAU_INSTRUCTION &&                           \
@@ -481,6 +488,32 @@ extern "C"
          *
          * Note that this barrier need not be executed on other cores, it's
          * enough for them to issue an instruction synchronization barrier. */
+        __asm__ __volatile__("dsb ish\n" ::: "memory");
+#elif defined(__arm__) && defined(__linux__)
+        __builtin___clear_cache((char *)address, ((char*)address) + size);
+#elif defined(__arm__) && defined(__rtems__)
+        alt_cache_system_purge((char *)address, ((char*)address) + size);
+#elif defined(__arm__) && defined(BEAMASM_MANUAL_ICACHE_FLUSHING)
+        /* Same for aarch64 but using dccmvau and icimvau*/
+        UWord start, end, stride;
+
+        start = reinterpret_cast<UWord>(address);
+        end = start + size;
+
+        stride = min_dcache_line_size;
+        for (UWord i = start & ~(stride - 1); i < end; i += stride) {
+            __asm__ __volatile__("MCR p15, 0, %0, c7, c11, 1" ::"r"(i) :); // dccmvau
+        }
+
+        /*  */
+        __asm__ __volatile__("dsb ish\n" ::: "memory");
+
+        stride = min_icache_line_size;
+        for (UWord i = start & ~(stride - 1); i < end; i += stride) {
+            __asm__ __volatile__("MCR p15, 0, %0, c7, c5, 1" ::"r"(i) :); // icimvau
+        }
+
+        /*  */
         __asm__ __volatile__("dsb ish\n" ::: "memory");
 #elif (defined(__x86_64__) || defined(_M_X64)) &&                              \
         defined(ERTS_THR_INSTRUCTION_BARRIER)

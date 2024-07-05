@@ -1,0 +1,2 @@
+#qemu-arm -L /usr/arm-linux-gnueabihf -g 1234 ./RELEASE/erts-14.1/bin/erlexec
+qemu-arm -L /usr/arm-linux-gnueabihf -g 1234 ./RELEASE/erts-15.0/bin/beam.smp -- -root ./RELEASE -bindir ./RELEASE/erts-14.1/bin -progname erl -home /home/ziopio
