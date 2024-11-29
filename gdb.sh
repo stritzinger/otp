@@ -8,7 +8,6 @@ gdb-multiarch -q --nh \
   -ex 'dir ./erts/emulator/armv7hl-unknown-linux-gnueabi/opt/jit/asmjit/arm' \
   -ex 'target remote localhost:1234' \
   -ex 'break main' \
-  -ex 'break /home/ziopio/Desktop/otp/erts/emulator/armv7hl-unknown-linux-gnueabi/opt/jit/asmjit/core/codeholder.h:998' \
   -ex 'layout src' \
   -ex continue \
 ;
