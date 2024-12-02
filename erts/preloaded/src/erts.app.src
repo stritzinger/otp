@@ -22,6 +22,7 @@
 	{vsn, "%VSN%"},
 	{modules, [
 		%% preloaded
+	    hello
 		erlang,
 		erl_prim_loader,
 		erts_internal,
