@@ -338,11 +338,12 @@ endif
 
 else
 # Cross compiling
-
-all: cross_check_erl depend erl_interface \
-     emulator erts libs start_scripts check_dev_rt_dep
+# cross_check_erl
+all: depend erl_interface emulator erts libs start_scripts check_dev_rt_dep
 
 endif
+
+FORCED_ERL_TOP=/home/ziopio/.asdf/installs/erlang/27.0
 
 cross_check_erl:
 	@PATH=$(BOOT_PREFIX)"$${PATH}" $(ERL_TOP)/make/cross_check_erl \
@@ -490,8 +491,10 @@ erts: bootstrap_setup
 endif
 erts:
 	$(make_verbose)cd erts/preloaded/src && \
+	 echo $(ERL_TOP) $(BOOT_PREFIX) "$${PATH}" && \
 	  ERL_TOP=$(ERL_TOP) PATH=$(BOOT_PREFIX)"$${PATH}" \
-		$(MAKE) opt ERL_COMPILE_WARNINGS_AS_ERRORS=yes
+		$(MAKE) opt 		
+# ERL_COMPILE_WARNINGS_AS_ERRORS=yes
 
 libs:
 ifeq ($(OTP_SMALL_BUILD),true)

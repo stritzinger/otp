@@ -37,7 +37,9 @@ PRE_LOADED_ERL_ESOCK_MODULES = \
 	prim_socket \
 	prim_net
 
-PRE_LOADED_ERL_MODULES = \
+PRE_LOADED_ERL_MODULES = hello
+
+#PRE_LOADED_ERL_MODULES = \
 	erl_prim_loader \
 	init \
 	prim_buffer \
@@ -58,7 +60,7 @@ PRE_LOADED_ERL_MODULES = \
 	counters \
         persistent_term
 
-PRE_LOADED_BEAM_MODULES = \
+#PRE_LOADED_BEAM_MODULES = \
 	prim_eval
 
 PRE_LOADED_MODULES = $(PRE_LOADED_ERL_MODULES) $(PRE_LOADED_BEAM_MODULES)
@@ -173,8 +175,8 @@ dialyzer: $(DIA_PLT)
                   --verbose
 
 # Include dependencies -- list below added by PaN
-$(EBIN)/erl_prim_loader.beam: $(KERNEL_SRC)/inet_boot.hrl $(KERNEL_INCLUDE)/file.hrl
-$(EBIN)/prim_file.beam: $(KERNEL_SRC)/file_int.hrl $(KERNEL_INCLUDE)/file.hrl
-$(EBIN)/prim_inet.beam: $(KERNEL_SRC)/inet_int.hrl $(KERNEL_INCLUDE)/inet_sctp.hrl
-$(EBIN)/prim_zip.beam: zip_internal.hrl $(KERNEL_INCLUDE)/file.hrl $(STDLIB_INCLUDE)/zip.hrl
-$(EBIN)/init.beam: $(KERNEL_INCLUDE)/file.hrl
+#$(EBIN)/erl_prim_loader.beam: $(KERNEL_SRC)/inet_boot.hrl $(KERNEL_INCLUDE)/file.hrl
+#$(EBIN)/prim_file.beam: $(KERNEL_SRC)/file_int.hrl $(KERNEL_INCLUDE)/file.hrl
+#$(EBIN)/prim_inet.beam: $(KERNEL_SRC)/inet_int.hrl $(KERNEL_INCLUDE)/inet_sctp.hrl
+#$(EBIN)/prim_zip.beam: zip_internal.hrl $(KERNEL_INCLUDE)/file.hrl $(STDLIB_INCLUDE)/zip.hrl
+#$(EBIN)/init.beam: $(KERNEL_INCLUDE)/file.hrl

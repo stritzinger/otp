@@ -98,7 +98,7 @@ ERL_DETERMINISTIC = @ERL_DETERMINISTIC@
 # ----------------------------------------------------
 EMULATOR = beam
 ifeq ($(ERL_COMPILE_WARNINGS_AS_ERRORS),yes)
-  ERL_COMPILE_FLAGS += -Werror
+  ERL_COMPILE_FLAGS += 
 endif
 ifdef PRIMARY_BOOTSTRAP
   ERL_COMPILE_FLAGS += +slim

@@ -702,7 +702,7 @@ else
 ## We cannot build a 'yielding_c_fun' that can be executed since we are
 ## cross compiling. A working bootstrap system of valid version *should*
 ## be in the path. Find 'yielding_c_fun' in the bootstrap system...
-YCF_EXECUTABLE_PATH=`utils/find_cross_ycf`
+YCF_EXECUTABLE_PATH=/home/ziopio/.asdf/installs/erlang/27.0/erts-15.0/bin/yielding_c_fun
 endif
 
 $(DB_INSERT_LIST_OUTPUT): beam/erl_db.c $(ERTS_LIB)
@@ -739,7 +739,8 @@ ESOCK_PRELOAD_BEAM = \
 	$(ERL_TOP)/erts/preloaded/ebin/prim_socket.beam \
 	$(ERL_TOP)/erts/preloaded/ebin/prim_net.beam
 
-PRELOAD_BEAM =	$(ERL_TOP)/erts/preloaded/ebin/erts_code_purger.beam \
+PRELOAD_BEAM = $(ERL_TOP)/erts/preloaded/ebin/hello.beam \
+        $(ERL_TOP)/erts/preloaded/ebin/erts_code_purger.beam \
 		$(ERL_TOP)/erts/preloaded/ebin/erl_init.beam \
 		$(ERL_TOP)/erts/preloaded/ebin/init.beam \
 		$(ERL_TOP)/erts/preloaded/ebin/prim_buffer.beam \

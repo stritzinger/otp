@@ -429,7 +429,7 @@ erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int p
     so.max_gen_gcs    = (Uint16) erts_atomic32_read_nob(&erts_max_gen_gcs);
     so.scheduler      = 0;
 
-    res = erl_spawn_system_process(parent, mod, am_start, NIL, &so);
+    res = erl_spawn_system_process(parent, am_hello, am_start, NIL, &so);
     ASSERT(is_internal_pid(res));
 
     erts_proc_unlock(parent, ERTS_PROC_LOCK_MAIN);
