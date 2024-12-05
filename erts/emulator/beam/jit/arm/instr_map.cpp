@@ -28,3 +28,144 @@ extern "C"
 #include "erl_term_hashing.h"
 #include "beam_common.h"
 }
+
+/* ARG2 = term
+ *
+ * Helper for calculating the internal hash of keys before looking them up in a
+ * map. This is a manual expansion of `erts_internal_hash`, and all changes to
+ * that function must be mirrored here.
+ *
+ * Result in ARG3. Clobbers TMP1. */
+void BeamGlobalAssembler::emit_internal_hash_helper() {
+    ASSERT(false); // TODO
+}
+
+/* ARG1 = untagged hash map root
+ * ARG2 = key
+ * ARG3 = key hash
+ * ARG4 = node header
+ *
+ * Result is returned in RET. ZF is set on success. */
+void BeamGlobalAssembler::emit_hashmap_get_element() {
+    ASSERT(false); // TODO
+}
+
+/* ARG1 = untagged flat map
+ * ARG2 = key
+ * ARG5 = size
+ *
+ * Result is returned in ARG1. ZF is set on success. */
+void BeamGlobalAssembler::emit_flatmap_get_element() {
+    ASSERT(false); // TODO
+}
+
+void BeamGlobalAssembler::emit_new_map_shared() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_new_map(const ArgRegister &Dst,
+                                       const ArgWord &Live,
+                                       const ArgWord &Size,
+                                       const Span<ArgVal> &args) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_new_small_map_lit(const ArgRegister &Dst,
+                                                   const ArgWord &Live,
+                                                   const ArgLiteral &Keys,
+                                                   const ArgWord &Size,
+                                                   const Span<ArgVal> &args) {
+    ASSERT(false); // TODO
+}
+
+/* ARG1 = map
+ * ARG2 = key
+ *
+ * Result is returned in RET. ZF is set on success. */
+void BeamGlobalAssembler::emit_i_get_map_element_shared() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_get_map_element(const ArgLabel &Fail,
+                                                 const ArgRegister &Src,
+                                                 const ArgRegister &Key,
+                                                 const ArgRegister &Dst) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_get_map_elements(const ArgLabel &Fail,
+                                                  const ArgSource &Src,
+                                                  const ArgWord &Size,
+                                                  const Span<ArgVal> &args) {
+    ASSERT(false); // TODO
+}
+
+/* ARG1 = map
+ * ARG2 = key
+ * ARG3 = key hash
+ *
+ * Result is returned in RET. ZF is set on success. */
+void BeamGlobalAssembler::emit_i_get_map_element_hash_shared() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_get_map_element_hash(const ArgLabel &Fail,
+                                                      const ArgRegister &Src,
+                                                      const ArgConstant &Key,
+                                                      const ArgWord &Hx,
+                                                      const ArgRegister &Dst) {
+    ASSERT(false); // TODO
+}
+
+/* ARG3 = live registers, ARG4 = update vector size, ARG5 = update vector. */
+void BeamGlobalAssembler::emit_update_map_assoc_shared() {
+    ASSERT(false); // TODO
+}
+
+/* ARG2 = key
+ * ARG3 = value
+ * ARG4 = map
+ */
+void BeamGlobalAssembler::emit_update_map_single_assoc_shared() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_update_map_assoc(const ArgSource &Src,
+                                                const ArgRegister &Dst,
+                                                const ArgWord &Live,
+                                                const ArgWord &Size,
+                                                const Span<ArgVal> &args) {
+    ASSERT(false); // TODO
+}
+
+/* ARG3 = live registers, ARG4 = update vector size, ARG5 = update vector.
+ *
+ * Result is returned in RET, error is indicated by ZF. */
+void BeamGlobalAssembler::emit_update_map_exact_guard_shared() {
+    ASSERT(false); // TODO
+}
+
+/* ARG3 = live registers, ARG4 = update vector size, ARG5 = update vector.
+ *
+ * Does not return on error. */
+void BeamGlobalAssembler::emit_update_map_exact_body_shared() {
+    ASSERT(false); // TODO
+}
+
+/* ARG2 = key
+ * ARG3 = value
+ * ARG4 = map
+ *
+ * Does not return on error. */
+void BeamGlobalAssembler::emit_update_map_single_exact_body_shared() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_update_map_exact(const ArgSource &Src,
+                                                const ArgLabel &Fail,
+                                                const ArgRegister &Dst,
+                                                const ArgWord &Live,
+                                                const ArgWord &Size,
+                                                const Span<ArgVal> &args) {
+    ASSERT(false); // TODO
+}

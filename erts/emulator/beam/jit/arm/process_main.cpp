@@ -54,5 +54,5 @@ void BeamGlobalAssembler::emit_process_main() {
     const arm::Mem start_time =
             getSchedulerRegRef(offsetof(ErtsSchedulerRegisters, start_time));
 
-    
+    ASSERT(false); // TODO
 }

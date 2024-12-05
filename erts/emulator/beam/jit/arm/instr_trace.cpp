@@ -26,3 +26,51 @@ extern "C"
 #include "erl_bif_table.h"
 #include "beam_bp.h"
 };
+
+/* This function is jumped to from the export entry of a function.
+ *
+ * ARG1 = export entry */
+void BeamGlobalAssembler::emit_generic_bp_global() {
+    ASSERT(false); // TODO
+}
+
+/* This function is called from the module header, which is in turn called from
+ * the prologue of the traced function. As such, the real return address is at
+ * SP+8 rather than LR (x30).
+ *
+ * See beam_asm.h for more details */
+void BeamGlobalAssembler::emit_generic_bp_local() {
+    ASSERT(false); // TODO
+}
+
+/* This function is called from the module header which is called from the
+ * prologue of the function to trace. See beam_asm.h for more details
+ *
+ * The only place that we can come to here is from generic_bp_local */
+void BeamGlobalAssembler::emit_debug_bp() {
+    ASSERT(false); // TODO
+}
+
+static void return_trace(Process *c_p,
+                         ErtsCodeMFA *mfa,
+                         Eterm val,
+                         ErtsTracer tracer,
+                         Eterm session_id) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_return_trace() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_call_trace_return() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_return_to_trace() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_hibernate() {
+    ASSERT(false); // TODO
+}

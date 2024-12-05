@@ -91,26 +91,77 @@ BeamGlobalAssembler::BeamGlobalAssembler(JitAllocator *allocator)
     }
 }
 
-void BeamGlobalAssembler::emit_process_exit() {
-    // TODO
+/* ARG3 = (HTOP + S_RESERVED + bytes needed) !!
+ * ARG4 = Live registers */
+void BeamGlobalAssembler::emit_garbage_collect() {
+
 }
 
 /* Handles trapping to exports from C code, setting registers up in the same
  * manner a normal call_ext instruction would so that save_calls, tracing, and
  * so on will work.
  *
+ * Our return address is on the stack as we always come here from a BIF, so we
+ * must pop it into LR (x30) to convert this into an ordinary call. The
+ * callee will then push LR to the stack in its prologue, cancelling this out.
+ *
  * Assumes that c_p->current points into the MFA of an export entry. */
 void BeamGlobalAssembler::emit_bif_export_trap() {
-    // TODO
-}
 
+}
 
 /* Handles export breakpoints, error handler, jump tracing, and so on.
  *
+ * We must be careful with LR (x30) and the stack as this runs between the
+ * caller and callee, and the latter pushes LR to the stack as part of its
+ * prologue.
+ *
+ * ARG1 = export entry
  */
 void BeamGlobalAssembler::emit_export_trampoline() {
 
-    // TODO
+}
+
+/*
+ * Get the error address implicitly by calling the shared fragment and using
+ * the return address as the error address.
+ */
+void BeamModuleAssembler::emit_raise_exception() {
+}
+
+void BeamModuleAssembler::emit_raise_exception(const ErtsCodeMFA *exp) {
+
+}
+
+void BeamModuleAssembler::emit_raise_exception(Label I,
+                                               const ErtsCodeMFA *exp) {
+
+}
+
+void BeamGlobalAssembler::emit_process_exit() {
+
+}
+
+/* You must have already done emit_leave_runtime_frame()! */
+void BeamGlobalAssembler::emit_raise_exception_null_exp() {
+
+}
+
+/* You must have already done emit_leave_runtime_frame()! */
+void BeamGlobalAssembler::emit_raise_exception() {
+
+}
+
+void BeamGlobalAssembler::emit_raise_exception_shared() {
+
+}
+
+void BeamModuleAssembler::emit_proc_lc_unrequire(void) {
+
+}
+
+void BeamModuleAssembler::emit_proc_lc_require(void) {
+
 }
 
 extern "C"

@@ -29,3 +29,72 @@ extern "C"
 #    include "dtrace-wrapper.h"
 #endif
 }
+
+void BeamModuleAssembler::emit_recv_marker_reserve(const ArgRegister &Dst) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_recv_marker_bind(const ArgRegister &Marker,
+                                                const ArgRegister &Reference) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_recv_marker_clear(const ArgRegister &Reference) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_recv_marker_use(const ArgRegister &Reference) {
+    ASSERT(false); // TODO
+}
+
+#ifdef ERTS_ENABLE_LOCK_CHECK
+int erts_lc_proc_sig_receive_helper(Process *c_p,
+                                    int fcalls,
+                                    int neg_o_reds,
+                                    ErtsMessage **msgpp,
+                                    int *get_outp) {
+    ASSERT(false); // TODO
+}
+#endif
+
+void BeamGlobalAssembler::emit_i_loop_rec_shared() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_i_loop_rec(const ArgLabel &Wait) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_remove_message() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_loop_rec_end(const ArgLabel &Dest) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_wait_unlocked(const ArgLabel &Dest) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_wait_locked(const ArgLabel &Dest) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_wait_timeout_unlocked(const ArgSource &Src,
+                                                     const ArgLabel &Dest) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_wait_timeout_locked(const ArgSource &Src,
+                                                   const ArgLabel &Dest) {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_timeout_locked() {
+    ASSERT(false); // TODO
+}
+
+void BeamModuleAssembler::emit_timeout() {
+    ASSERT(false); // TODO
+}

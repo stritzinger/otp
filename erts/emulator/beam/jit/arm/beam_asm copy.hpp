@@ -50,14 +50,6 @@ extern "C"
 
 #include "beam_jit_common.hpp"
 
-/* Is it safe to STP or LDP `Struct->Field1` and `Struct->Field2`? */
-#define ERTS_CT_ASSERT_FIELD_PAIR(Struct, Field1, Field2)                      \
-    static_assert(std::is_standard_layout<Struct>::value &&                    \
-                  (offsetof(Struct, Field2) - offsetof(Struct, Field1) ==      \
-                   sizeof(((Struct *)nullptr)->Field1)) &&                     \
-                  (sizeof(((Struct *)nullptr)->Field1) ==                      \
-                   sizeof(((Struct *)nullptr)->Field2)))
-
 /* On Windows, the min and max macros may be defined. */
 #undef min
 #undef max
@@ -98,461 +90,25 @@ protected:
      * jumping to the actual code. */
     const a32::Gp active_code_ix = a32::r6;
 
-//     /* X registers */
-// #if defined(DEBUG)
-//     /*
-//      * To ensure that we thoroughly test flushing of caller-save X
-//      * registers, define more caller-save X registers in a DEBUG
-//      * build.
-//      */
-// #    define ERTS_HIGHEST_CALLEE_SAVE_XREG 2
-// #    define ERTS_HIGHEST_CALLER_SAVE_XREG 5
-//     const a32::Gp XREG0 = a32::x25;
-//     const a32::Gp XREG1 = a32::x26;
-//     const a32::Gp XREG2 = a32::x27;
-
-//     /*
-//      * Caller-save X registers. Must be flushed before calling C
-//      * code.
-//      */
-//     const a32::Gp XREG3 = a32::x15;
-//     const a32::Gp XREG4 = a32::x16;
-//     const a32::Gp XREG5 = a32::x17;
-// #else
-// #    define ERTS_HIGHEST_CALLEE_SAVE_XREG 3
-// #    define ERTS_HIGHEST_CALLER_SAVE_XREG 5
-//     const a32::Gp XREG0 = a32::x25;
-//     const a32::Gp XREG1 = a32::x26;
-//     const a32::Gp XREG2 = a32::x27;
-//     const a32::Gp XREG3 = a32::x28;
-
-//     /*
-//      * Caller-save X registers. Must be flushed before calling C
-//      * code.
-//      */
-//     const a32::Gp XREG4 = a32::x15;
-//     const a32::Gp XREG5 = a32::x16;
-// #endif
-
-// #define ERTS_LOWEST_CALLEE_SAVE_XREG (0)
-// #define ERTS_LOWEST_CALLER_SAVE_XREG (ERTS_HIGHEST_CALLEE_SAVE_XREG + 1)
-
-    static const int num_register_backed_xregs = 6;
-    // const a32::Gp register_backed_xregs[num_register_backed_xregs] =
-    //         {XREG0, XREG1, XREG2, XREG3, XREG4, XREG5};
-
 #ifdef ERTS_MSACC_EXTENDED_STATES
-    const arm::Mem erts_msacc_cache = getSchedulerRegRef(
+    const a32::Mem erts_msacc_cache = getSchedulerRegRef(
             offsetof(ErtsSchedulerRegisters, aux_regs.d.erts_msacc_cache));
 #endif
 
-//     /* * * * * * * * * */
-//     const a32::Gp ZERO = a32::xzr;
 
+    const a32::Gp ARG1 = a32::r1;
+    const a32::Gp ARG2 = a32::r2;
+    const a32::Gp ARG3 = a32::r3;
+    const a32::Gp ARG4 = a32::r4;
+    const a32::Gp ARG5 = a32::r5;
 
-//     /*
-//      * All of the following registers are caller-save.
-//      *
-//      * Note that ARG1 is also the register for the return value.
-//      */
-//     const a32::Gp ARG1 = a32::x0;
-//     const a32::Gp ARG2 = a32::x1;
-//     const a32::Gp ARG3 = a32::x2;
-//     const a32::Gp ARG4 = a32::x3;
-//     const a32::Gp ARG5 = a32::x4;
-//     const a32::Gp ARG6 = a32::x5;
-//     const a32::Gp ARG7 = a32::x6;
-//     const a32::Gp ARG8 = a32::x7;
-
-//     const a32::Gp TMP1 = a32::x8;
-//     const a32::Gp TMP2 = a32::x9;
-//     const a32::Gp TMP3 = a32::x10;
-//     const a32::Gp TMP4 = a32::x11;
-//     const a32::Gp TMP5 = a32::x12;
-//     const a32::Gp TMP6 = a32::x13;
-
-//     /*
-//      * Assume that SUPER_TMP will be destroyed by any helper function.
-//      */
-//     const a32::Gp SUPER_TMP = a32::x14;
-
-//     /*
-//      * Note that x18 is reserved on Apple platforms and must not be used.
-//      */
-
-//     /* Callee-saved floating-point registers.
-//      *
-//      * Note that only the bottom 64 bits of these (128-bit) registers are
-//      * callee-save, so we cannot pack two floats into each register. */
-//     const a32::VecD FREG0 = a32::d8;
-//     const a32::VecD FREG1 = a32::d9;
-//     const a32::VecD FREG2 = a32::d10;
-//     const a32::VecD FREG3 = a32::d11;
-//     const a32::VecD FREG4 = a32::d12;
-//     const a32::VecD FREG5 = a32::d13;
-//     const a32::VecD FREG6 = a32::d14;
-//     const a32::VecD FREG7 = a32::d15;
-    static const int num_register_backed_fregs = 8;
-//     const a32::VecD register_backed_fregs[num_register_backed_fregs] =
-//             {FREG0, FREG1, FREG2, FREG3, FREG4, FREG5, FREG6, FREG7};
-
-//     const arm::Mem TMP_MEM1q = getSchedulerRegRef(
-//             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[0]));
-//     const arm::Mem TMP_MEM2q = getSchedulerRegRef(
-//             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[1]));
-//     const arm::Mem TMP_MEM3q = getSchedulerRegRef(
-//             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[2]));
-//     const arm::Mem TMP_MEM4q = getSchedulerRegRef(
-//             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[3]));
-//     const arm::Mem TMP_MEM5q = getSchedulerRegRef(
-//             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[4]));
-
-//     /* Fill registers with undefined contents to find bugs faster.
-//      * A boxed value is most likely to cause noticeable trouble. */
-//     static const Uint64 bad_boxed_ptr = 0xcafebad0000002UL;
-
-//     /* Number of highest element displacement for L/SDP and L/STR. */
-//     static const size_t MAX_LDP_STP_DISPLACEMENT = 0x3F;
-//     static const size_t MAX_LDR_STR_DISPLACEMENT = 0xFFF;
-//     static const size_t MAX_LDUR_STUR_DISPLACEMENT = 0xFF;
-
-//     /* Constants for "alternate flag state" operands, which are distinct from
-//      * `arm::CondCode::xyz`. Mainly used in `CCMP` instructions. */
-//     enum NZCV : int {
-//         kNF = 8,
-//         kSigned = kNF,
-
-//         kZF = 4,
-//         kEqual = kZF,
-
-//         kCF = 2,
-//         kCarry = kCF,
-
-//         kVF = 1,
-//         kOverflow = kVF,
-
-//         kNone = 0
-//     };
-
-// #ifdef JIT_HARD_DEBUG
-//     constexpr arm::Mem getInitialSPRef() const {
-//         int base = offsetof(ErtsSchedulerRegisters, initial_sp);
-
-//         return getSchedulerRegRef(base);
-//     }
-// #endif
+    const a32::Gp RET = a32::r0;
 
     constexpr arm::Mem getSchedulerRegRef(int offset) const {
         ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
         return arm::Mem(scheduler_registers, offset);
     }
-
-    constexpr arm::Mem getFRef(int index, size_t size = sizeof(UWord)) const {
-        int base = offsetof(ErtsSchedulerRegisters, f_reg_array.d);
-        int offset = index * sizeof(FloatDef);
-
-        ASSERT(0 <= index && index <= 1023);
-        return getSchedulerRegRef(base + offset);
-    }
-
-    constexpr arm::Mem getXRef(int index) const {
-        int base = offsetof(ErtsSchedulerRegisters, x_reg_array.d);
-        int offset = index * sizeof(Eterm);
-
-        ASSERT(0 <= index && index < ERTS_X_REGS_ALLOCATED);
-        return getSchedulerRegRef(base + offset);
-    }
-
-    constexpr arm::Mem getYRef(int index) const {
-        ASSERT(0 <= index && index <= 1023);
-
-        return arm::Mem(E, index * sizeof(Eterm));
-    }
-
-    constexpr arm::Mem getCARRef(a32::Gp Src) const {
-        return arm::Mem(Src, -TAG_PRIMARY_LIST);
-    }
-
-    constexpr arm::Mem getCDRRef(a32::Gp Src,
-                                 size_t size = sizeof(UWord)) const {
-        return arm::Mem(Src, -TAG_PRIMARY_LIST + sizeof(Eterm));
-    }
-
-//     /* Loads the X register array into `to`. Remember to sync the registers in
-//      * `emit_enter_runtime`. */
-//     void load_x_reg_array(a32::Gp to) {
-//         int offset = offsetof(ErtsSchedulerRegisters, x_reg_array.d);
-
-//         lea(to, getSchedulerRegRef(offset));
-//     }
-
-//     void load_erl_bits_state(a32::Gp to) {
-//         int offset =
-//                 offsetof(ErtsSchedulerRegisters, aux_regs.d.erl_bits_state);
-
-//         lea(to, getSchedulerRegRef(offset));
-//     }
-
-    void emit_assert_redzone_unused() {
-#ifdef JIT_HARD_DEBUG
-        const int REDZONE_BYTES = S_REDZONE * sizeof(Eterm);
-        Label next = a.newLabel();
-
-        a.sub(SUPER_TMP, E, imm(REDZONE_BYTES));
-        a.cmp(HTOP, SUPER_TMP);
-
-        a.b_ls(next);
-        a.udf(0xbeef);
-
-        a.bind(next);
-#endif
-    }
-
-//     /*
-//      * Calls an Erlang function.
-//      */
-//     template<typename Any>
-//     void erlang_call(Any Target) {
-
-//     }
-
-//     void branch(arm::Mem target) {
-
-//     }
-
-//     template<typename FuncPtr>
-//     void aligned_call(FuncPtr(*target)) {
-
-//     }
-
-//     void aligned_call(Label target) {
-
-//     }
-
-//     void aligned_call(a32::Gp target) {
-
-//     }
-
-//     /* Calls the given address. In DEBUG builds, make
-//      * sure that the CP is aligned. */
-//     template<typename OperandType>
-//     void aligned_call(OperandType target) {
-//         ERTS_CT_ASSERT(_CPMASK == 3);
-//         ASSERT(is_CP(a.offset()));
-//         a.ldr(TMP1, target);
-//         a.blr(TMP1);
-//     }
-
-//     void runtime_call(a32::Gp func, unsigned args) {
-//         ASSERT(args < 5);
-//         a.blr(func);
-//     }
-
-//     template<typename T>
-//     struct function_arity;
-//     template<typename T, typename... Args>
-//     struct function_arity<T(Args...)>
-//             : std::integral_constant<int, sizeof...(Args)> {};
-
-//     template<int expected_arity, typename T>
-//     void runtime_call(T(*func)) {
-
-//     }
-
-//     /* Explicitly position-independent absolute jump, for use in fragments that
-//      * need to be memcpy'd for performance reasons (e.g. NIF stubs) */
-//     template<typename T>
-//     void pic_jmp(T(*addr)) {
-//         a.mov(SUPER_TMP, addr);
-//         a.br(SUPER_TMP);
-//     }
-
-    constexpr arm::Mem getArgRef(const ArgRegister &arg) const {
-        if (arg.isXRegister()) {
-            return getXRef(arg.as<ArgXRegister>().get());
-        } else if (arg.isYRegister()) {
-            return getYRef(arg.as<ArgYRegister>().get());
-        }
-
-        return getFRef(arg.as<ArgFRegister>().get());
-    }
-
-    /* Returns the current code address for the `Export` or `ErlFunEntry` in
-     * `Src`.
-     *
-     * Export tracing, save_calls, etc are implemented by shared fragments that
-     * assume that the respective entry is in ARG1, so we have to copy it over
-     * if it isn't already. */
-    arm::Mem emit_setup_dispatchable_call(const a32::Gp &Src) {
-        return emit_setup_dispatchable_call(Src, active_code_ix);
-    }
-
-    arm::Mem emit_setup_dispatchable_call(const a32::Gp &Src,
-                                          const a32::Gp &CodeIndex) {
-        ASSERT(false); // TODO
-        arm::Mem m;
-        return m;
-    }
-
-    /* Prefer `eHeapAlloc` over `eStack | eHeap` when calling
-     * functions in the runtime system that allocate heap
-     * memory (`HAlloc`, heap factories, etc).
-     *
-     * Prefer `eHeapOnlyAlloc` over `eHeapAlloc` for functions
-     * that assume there's already a certain amount of free
-     * space on the heap, such as those using `HeapOnlyAlloc`
-     * or similar. It's slightly cheaper in release builds,
-     * and in debug builds it updates `eStack` to ensure that
-     * we can make heap size assertions. */
-    enum Update : int {
-        eStack = (1 << 0),
-        eHeap = (1 << 1),
-        eReductions = (1 << 2),
-        eCodeIndex = (1 << 3),
-        eXRegs = (1 << 4),
-        eHeapAlloc = Update::eHeap | Update::eStack,
-#ifndef DEBUG
-        eHeapOnlyAlloc = Update::eHeap,
-#else
-        eHeapOnlyAlloc = Update::eHeapAlloc
-#endif
-    };
-
-    void emit_enter_erlang_frame() {
-    }
-
-    void emit_leave_erlang_frame() {
-    }
-
-    void emit_enter_runtime_frame() {
-    }
-
-    void emit_leave_runtime_frame() {
-    }
-
-    /* We keep the first six X registers in machine registers. Some of those
-     * registers are callee-saved and some are caller-saved.
-     *
-     * We ignore the ones above `live` to reduce the save/restore traffic on
-     * these registers. It's enough for this figure to be at least as high as
-     * the number of actually live registers, and we default to all six
-     * registers when we don't know the exact number.
-     *
-     * Furthermore, we only save the callee-save registers when told to sync
-     * all registers with the `Update::eXRegs` flag, as this is very rarely
-     * needed. */
-
-    template<int Spec = 0>
-    void emit_enter_runtime(int live = num_register_backed_xregs) {
-
-    }
-
-    template<int Spec = 0>
-    void emit_leave_runtime(int live = num_register_backed_xregs) {
-
-    }
-
-    void emit_is_cons(Label Fail, a32::Gp Src) {
-
-    }
-
-    void emit_is_not_cons(Label Fail, a32::Gp Src) {
-
-    }
-
-    void emit_is_boxed(Label Fail, a32::Gp Src) {
-
-    }
-
-    void emit_is_not_boxed(Label Fail, a32::Gp Src) {
-
-    }
-
-    a32::Gp emit_ptr_val(a32::Gp Dst, a32::Gp Src) {
-        a32::Gp r;
-        ASSERT(false); // TODO
-        return r;
-    }
-
-    void emit_untag_ptr(a32::Gp Dst, a32::Gp Src) {
-    }
-
-    constexpr arm::Mem emit_boxed_val(a32::Gp Src, int32_t bytes = 0) const {
-        ASSERT(bytes % sizeof(Eterm) == 0);
-        return arm::Mem(Src, bytes - TAG_PRIMARY_BOXED);
-    }
-
-    void emit_branch_if_not_value(a32::Gp reg, Label lbl) {
-    }
-
-    void emit_branch_if_value(a32::Gp reg, Label lbl) {
-    }
-
-    void emit_branch_if_eq(a32::Gp reg, Uint value, Label lbl) {
-
-    }
-
-    void emit_branch_if_ne(a32::Gp reg, Uint value, Label lbl) {
-
-    }
-
-    /* Set the Z flag if Reg1 and Reg2 are definitely not equal based
-     * on their tags alone. (They may still be equal if both are
-     * immediates and all other bits are equal too.) */
-    void emit_is_unequal_based_on_tags(a32::Gp Reg1, a32::Gp Reg2) {
-
-    }
-
-    a32::Gp follow_size(const a32::Gp &reg, const a32::Gp &size) {
-        ASSERT(false);
-        return reg;
-    }
-
-    template<typename T>
-    void mov_imm(a32::Gp to, T value) {
-
-    }
-
-    void mov_imm(a32::Gp to, std::nullptr_t value) {
-
-    }
-
-    void sub(a32::Gp to, a32::Gp src, int64_t val) {
-
-    }
-
-    void add(a32::Gp to, a32::Gp src, int64_t val) {
-
-    }
-
-    void subs(a32::Gp to, a32::Gp src, int64_t val) {
-
-    }
-
-    void cmp(a32::Gp src, int64_t val) {
-
-    }
-
-    void ldur(a32::Gp reg, arm::Mem mem) {
-    }
-
-    void stur(a32::Gp reg, arm::Mem mem) {
-    }
-
-    void safe_9bit_imm(uint32_t instId, a32::Gp reg, arm::Mem mem) {
-
-    }
-
-    /*
-     * ARM has no LEA instruction. Implement our own to enable us
-     * to use helpers based on getSchedulerRegRef() that return an
-     * arm::Mem class.
-     */
-    void lea(a32::Gp to, arm::Mem mem) {
-
-    }
 };
-
 
 #include "beam_asm_global.hpp"
 
@@ -614,7 +170,6 @@ class BeamModuleAssembler : public BeamAssembler,
         dispMin = dispUnknown,
         dispMax = disp128MB
     };
-
 
     static_assert(dispMin <= dispUnknown && dispMax >= disp128MB);
     static_assert(STUB_CHECK_INTERVAL < dispMin / 2);
@@ -691,54 +246,51 @@ class BeamModuleAssembler : public BeamAssembler,
             RegisterCache<16, arm::Mem, a32::Gp>(scheduler_registers, E, {});
 
     void reg_cache_put(arm::Mem mem, a32::Gp src) {
-        ASSERT(false); // TODO
+
     }
 
     a32::Gp find_cache(arm::Mem mem) {
-        ASSERT(false); // TODO
-        return reg_cache.find(a.offset(), mem);
     }
 
     /* Works as the STR instruction, but also updates the cache. */
     void str_cache(a32::Gp src, arm::Mem mem_dst) {
-        ASSERT(false); // TODO
+
     }
 
     /* Works as the STP instruction, but also updates the cache. */
     void stp_cache(a32::Gp src1, a32::Gp src2, arm::Mem mem_dst) {
-        ASSERT(false); // TODO
+
     }
 
     /* Works like LDR, but looks in the cache first. */
     void ldr_cached(a32::Gp dst, arm::Mem mem) {
-        ASSERT(false); // TODO
+
     }
 
     template<typename L, typename... Any>
     void preserve_cache(L generate, Any... clobber) {
-        ASSERT(false); // TODO
+
     }
 
     void trim_preserve_cache(const ArgWord &Words) {
-        ASSERT(false); // TODO
+
     }
 
     void mov_preserve_cache(a32::VecD dst, a32::VecD src) {
-        ASSERT(false); // TODO
+
     }
 
     void mov_preserve_cache(a32::Gp dst, a32::Gp src) {
-        ASSERT(false); // TODO
+
     }
 
     void untag_ptr_preserve_cache(a32::Gp dst, a32::Gp src) {
-        ASSERT(false); // TODO
+
     }
 
     arm::Mem embed_label(const Label &label, enum Displacement disp);
 
 public:
-
     BeamModuleAssembler(BeamGlobalAssembler *ga,
                         Eterm mod,
                         int num_labels,
@@ -812,23 +364,24 @@ protected:
                           bool skip_header_test = false);
 
     void emit_is_cons(Label Fail, a32::Gp Src) {
-        ASSERT(false); // TODO
+        preserve_cache([&]() {
+            BeamAssembler::emit_is_cons(Fail, Src);
+        });
     }
 
     void emit_is_not_cons(Label Fail, a32::Gp Src) {
-        ASSERT(false); // TODO
+
     }
 
     void emit_is_list(Label Fail, a32::Gp Src) {
-        ASSERT(false); // TODO
     }
 
     void emit_is_boxed(Label Fail, a32::Gp Src) {
-        ASSERT(false); // TODO
+
     }
 
     void emit_is_boxed(Label Fail, const ArgVal &Arg, a32::Gp Src) {
-        ASSERT(false); // TODO
+
     }
 
     /* Copies `count` words from the address at `from`, to the address at `to`.
@@ -1066,14 +619,13 @@ protected:
     }
 
     bool isRegisterBacked(const ArgVal &arg) {
-        return false; // TODO
-        // if (arg.isXRegister()) {
-        //     return arg.as<ArgXRegister>().get() < num_register_backed_xregs;
-        // } else if (arg.isFRegister()) {
-        //     return arg.as<ArgFRegister>().get() < num_register_backed_fregs;
-        // }
+        if (arg.isXRegister()) {
+            return arg.as<ArgXRegister>().get() < num_register_backed_xregs;
+        } else if (arg.isFRegister()) {
+            return arg.as<ArgFRegister>().get() < num_register_backed_fregs;
+        }
 
-        // return false;
+        return false;
     }
 
     template<typename RegType = a32::Gp>
@@ -1088,18 +640,72 @@ protected:
     };
 
     Variable<a32::Gp> init_destination(const ArgVal &arg, a32::Gp tmp) {
-        ASSERT(false);
-        return Variable(tmp); // TODO
+        /* We don't support storing into GpW since their maximum displacement
+         * is 16K, which means we have to check stubs far more often. */
+        ASSERT(tmp.isGpX());
+
+        if (isRegisterBacked(arg)) {
+            auto index = arg.as<ArgXRegister>().get();
+            return Variable(register_backed_xregs[index]);
+        } else {
+            return Variable(tmp, getArgRef(arg));
+        }
     }
 
     Variable<a32::VecD> init_destination(const ArgVal &arg, a32::VecD tmp) {
-        ASSERT(false);
-        return Variable(tmp); // TODO
+        if (isRegisterBacked(arg)) {
+            auto index = arg.as<ArgFRegister>().get();
+            return Variable(register_backed_fregs[index]);
+        } else {
+            return Variable(tmp, getArgRef(arg));
+        }
     }
 
     Variable<a32::Gp> load_source(const ArgVal &arg, a32::Gp tmp) {
-        ASSERT(false);
-        return Variable(tmp); // TODO
+        /* We don't support loading into GpW since their maximum displacement
+         * is 16K, which means we have to check stubs far more often. */
+        ASSERT(tmp.isGpX());
+
+        if (arg.isLiteral()) {
+            preserve_cache(
+                    [&]() {
+                        a.ldr(tmp, embed_constant(arg, disp32K));
+                    },
+                    tmp);
+            return Variable(tmp);
+        } else if (arg.isRegister()) {
+            if (isRegisterBacked(arg)) {
+                auto index = arg.as<ArgXRegister>().get();
+                a32::Gp reg = register_backed_xregs[index];
+                reg_cache.invalidate(reg);
+                return Variable(reg);
+            }
+
+            auto ref = getArgRef(arg);
+            ldr_cached(tmp, ref);
+            return Variable(tmp, ref);
+        } else {
+            if (arg.isImmed() || arg.isWord()) {
+                auto val = arg.isImmed() ? arg.as<ArgImmed>().get()
+                                         : arg.as<ArgWord>().get();
+
+                if (Support::isIntOrUInt32(val)) {
+                    preserve_cache(
+                            [&]() {
+                                mov_imm(tmp, val);
+                            },
+                            tmp);
+                    return Variable(tmp);
+                }
+            }
+
+            preserve_cache(
+                    [&]() {
+                        a.ldr(tmp, embed_constant(arg, disp32K));
+                    },
+                    tmp);
+            return Variable(tmp);
+        }
     }
 
     /*
@@ -1124,9 +730,17 @@ protected:
      *    a.cmp(TMP1, imm(...));
      */
     Variable<a32::Gp> load_source(const ArgVal &arg) {
-        a32::Gp todo;
-        ASSERT(false);
-        return Variable(todo); // TODO
+        if (!arg.isRegister()) {
+            return load_source(arg, TMP1);
+        } else {
+            a32::Gp cached_reg = find_cache(getArgRef(arg));
+
+            if (cached_reg.isValid()) {
+                return load_source(arg, cached_reg);
+            } else {
+                return load_source(arg, TMP1);
+            }
+        }
     }
 
     auto load_sources(const ArgVal &Src1,
@@ -1152,7 +766,12 @@ protected:
     }
 
     Variable<a32::VecD> load_source(const ArgVal &arg, a32::VecD tmp) {
-        ASSERT(false);
+        if (isRegisterBacked(arg)) {
+            auto index = arg.as<ArgFRegister>().get();
+            return Variable<a32::VecD>(register_backed_fregs[index]);
+        }
+
+        a.ldr(tmp, getArgRef(arg));
         return Variable<a32::VecD>(tmp);
     }
 
@@ -1167,72 +786,71 @@ protected:
 
     template<typename Reg>
     void mov_var(const Variable<Reg> &to, const Variable<Reg> &from) {
-        ASSERT(false);
+
     }
 
     template<typename Reg>
     void mov_var(const Variable<Reg> &to, Reg from) {
-        ASSERT(false);
+
     }
 
     template<typename Reg>
     void mov_var(Reg to, const Variable<Reg> &from) {
-        ASSERT(false);
+
     }
 
     void flush_var(const Variable<a32::Gp> &to) {
-        ASSERT(false);
+
     }
 
     void flush_var(const Variable<a32::VecD> &to) {
-        ASSERT(false);
+
     }
 
     enum Relation { none, consecutive, reverse_consecutive };
 
     static Relation memory_relation(const arm::Mem &mem1,
                                     const arm::Mem &mem2) {
-        ASSERT(false);
-        return none;
+
     }
 
     void flush_vars(const Variable<a32::Gp> &to1,
                     const Variable<a32::Gp> &to2) {
-        ASSERT(false);
+
     }
 
     void flush_vars(const Variable<a32::Gp> &to1,
                     const Variable<a32::Gp> &to2,
                     const Variable<a32::Gp> &to3) {
-        ASSERT(false);
+
     }
 
     void mov_arg(const ArgRegister &To, const ArgVal &From) {
-        ASSERT(false);
+
     }
 
     void mov_arg(const ArgRegister &To, arm::Mem From) {
-        ASSERT(false);
+
     }
 
     void mov_arg(arm::Mem To, const ArgVal &From) {
-        ASSERT(false);
+
     }
 
     void mov_arg(a32::Gp to, const ArgVal &from) {
-        ASSERT(false);
+
     }
 
     void mov_arg(const ArgVal &to, a32::Gp from) {
-        ASSERT(false);
+
     }
 
     void cmp_arg(a32::Gp gp, const ArgVal &arg) {
-        ASSERT(false);
+
     }
 
     void safe_str(a32::Gp gp, arm::Mem mem) {
-        ASSERT(false);
+
     }
 
     void safe_stp(a32::Gp gp1,
@@ -1240,27 +858,27 @@ protected:
 
                   const ArgVal &Dst1,
                   const ArgVal &Dst2) {
-        ASSERT(false);
+        ASSERT(ArgVal::memory_relation(Dst1, Dst2) ==
+               ArgVal::Relation::consecutive);
+        safe_stp(gp1, gp2, getArgRef(Dst1));
     }
 
     void safe_stp(a32::Gp gp1, a32::Gp gp2, arm::Mem mem) {
-        ASSERT(false);
+
     }
 
     void safe_ldr(a32::Gp gp, arm::Mem mem) {
-        ASSERT(false);
+
     }
 
     void safe_ldur(a32::Gp gp, arm::Mem mem) {
 
-        ASSERT(false);
     }
 
     void safe_ldp(a32::Gp gp1,
                   a32::Gp gp2,
                   const ArgVal &Src1,
                   const ArgVal &Src2) {
-        ASSERT(false);
 
     }
 
@@ -1276,7 +894,6 @@ protected:
                                        a32::Gp Reg1,
                                        const ArgVal &Src2,
                                        a32::Gp Reg2) {
-        ASSERT(false);
 
     }
 
@@ -1285,8 +902,6 @@ protected:
                                  a32::Gp Reg1,
                                  const ArgVal &Src2,
                                  a32::Gp Reg2) {
-        ASSERT(false);
-    }
 
 };
 
