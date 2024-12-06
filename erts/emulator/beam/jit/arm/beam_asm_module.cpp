@@ -163,12 +163,18 @@ void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
 }
 
 void BeamModuleAssembler::emit_label(const ArgLabel &Label) {
-    ASSERT(false); // TODO
+    ASSERT(Label.isLabel());
+
+    current_label = rawLabels[Label.get()];
+    bind_veneer_target(current_label);
+
+    reg_cache.invalidate();
 }
 
 void BeamModuleAssembler::emit_aligned_label(const ArgLabel &Label,
                                              const ArgWord &Alignment) {
-    ASSERT(false); // TODO
+    a.align(AlignMode::kCode, Alignment.get());
+    emit_label(Label);
 }
 
 void BeamModuleAssembler::emit_on_load() {
@@ -176,7 +182,21 @@ void BeamModuleAssembler::emit_on_load() {
 }
 
 void BeamModuleAssembler::bind_veneer_target(const Label &target) {
-    ASSERT(false); // TODO
+    auto veneer_range = _veneers.equal_range(target.id());
+    for (auto it = veneer_range.first; it != veneer_range.second; it++) {
+        const Veneer &veneer = it->second;
+
+        ASSERT(veneer.target == target);
+
+        if (!code.isLabelBound(veneer.anchor)) {
+            ASSERT((ssize_t)a.offset() <= veneer.latestOffset);
+            a.bind(veneer.anchor);
+
+            /* TODO: remove from pending stubs? */
+        }
+    }
+
+    a.bind(target);
 }
 
 void BeamModuleAssembler::emit_int_code_end() {
