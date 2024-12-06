@@ -159,7 +159,42 @@ void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
                                            const ArgAtom &Module,
                                            const ArgAtom &Function,
                                            const ArgWord &Arity) {
-    ASSERT(false); // TODO
+    ErtsCodeInfo info = {};
+
+    /* `op_i_func_info_IaaI` is used in various places in the emulator, so this
+     * label is always encoded as a word, even though the signature ought to
+     * be `op_i_func_info_LaaI`. */
+    functions.push_back(Label.get());
+
+    info.mfa.module = Module.get();
+    info.mfa.function = Function.get();
+    info.mfa.arity = Arity.get();
+
+    comment("%T:%T/%d", info.mfa.module, info.mfa.function, info.mfa.arity);
+
+    /* This is an ErtsCodeInfo structure that has a valid ARM opcode as its `op`
+     * field, which *calls* the `raise_function_clause` fragment so we can trace
+     * it back to this particular function.
+     *
+     * We also use this field to store the current breakpoint flag, as ARM is a
+     * bit more strict about modifying code than x86: only branch instructions
+     * can be safely modified without issuing an ISB. By storing the flag here
+     * and reading it in the fragment, we don't have to change any code other
+     * than the branch instruction. */
+    if (code_header.isValid()) {
+        /* We avoid using the `fragment_call` helper to ensure a constant
+         * layout, as it adds code in certain debug configurations. */
+        a.bl(resolve_fragment(ga->get_i_func_info_shared(), disp128MB));
+    } else {
+        a.udf(0xF1F0);
+    }
+
+    ERTS_CT_ASSERT(ERTS_ASM_BP_FLAG_NONE == 0);
+    a.embedUInt32(0);
+
+    ASSERT(a.offset() % sizeof(UWord) == 0);
+    a.embed(&info.gen_bp, sizeof(info.gen_bp));
+    a.embed(&info.mfa, sizeof(info.mfa));
 }
 
 void BeamModuleAssembler::emit_label(const ArgLabel &Label) {
@@ -264,79 +299,79 @@ void BeamModuleAssembler::emit_call_error_handler() {
 //     }
 // }
 
-// const Label &BeamModuleAssembler::resolve_label(const Label &target,
-//                                                 enum Displacement disp,
-//                                                 const char *labelName) {
-//     ssize_t currOffset = a.offset();
+const Label &BeamModuleAssembler::resolve_label(const Label &target,
+                                                enum Displacement disp,
+                                                const char *labelName) {
+    ssize_t currOffset = a.offset();
 
-//     ssize_t minOffset = currOffset - disp;
-//     ssize_t maxOffset = currOffset + disp;
+    ssize_t minOffset = currOffset - disp;
+    ssize_t maxOffset = currOffset + disp;
 
-//     ASSERT(disp >= dispMin && disp <= dispMax);
-//     ASSERT(target.isValid());
+    ASSERT(disp >= dispMin && disp <= dispMax);
+    ASSERT(target.isValid());
 
-//     if (code.isLabelBound(target)) {
-//         ssize_t targetOffset = code.labelOffsetFromBase(target);
+    if (code.isLabelBound(target)) {
+        ssize_t targetOffset = code.labelOffsetFromBase(target);
 
-//         /* Backward reference: skip veneers if it's already in range. */
-//         if (targetOffset >= minOffset) {
-//             return target;
-//         }
-//     }
+        /* Backward reference: skip veneers if it's already in range. */
+        if (targetOffset >= minOffset) {
+            return target;
+        }
+    }
 
-//     /* If a previously created veneer is reachable from this point, we can use
-//      * it instead of creating a new one. */
-//     auto range = _veneers.equal_range(target.id());
-//     for (auto it = range.first; it != range.second; it++) {
-//         const Veneer &veneer = it->second;
+    /* If a previously created veneer is reachable from this point, we can use
+     * it instead of creating a new one. */
+    auto range = _veneers.equal_range(target.id());
+    for (auto it = range.first; it != range.second; it++) {
+        const Veneer &veneer = it->second;
 
-//         if (code.isLabelBound(veneer.anchor)) {
-//             ssize_t veneerOffset = code.labelOffsetFromBase(veneer.anchor);
+        if (code.isLabelBound(veneer.anchor)) {
+            ssize_t veneerOffset = code.labelOffsetFromBase(veneer.anchor);
 
-//             if (veneerOffset >= minOffset && veneerOffset <= maxOffset) {
-//                 return veneer.anchor;
-//             }
-//         } else if (veneer.latestOffset <= maxOffset) {
-//             return veneer.anchor;
-//         }
-//     }
+            if (veneerOffset >= minOffset && veneerOffset <= maxOffset) {
+                return veneer.anchor;
+            }
+        } else if (veneer.latestOffset <= maxOffset) {
+            return veneer.anchor;
+        }
+    }
 
-//     Label anchor;
+    Label anchor;
 
-//     if (!labelName) {
-//         anchor = a.newLabel();
-//     } else {
-//         /* This is the entry label for a function. Create an unique
-//          * name for the anchor label. It is necessary to include a
-//          * sequence number in the label name because if the module is
-//          * huge more than one veneer can be created for each entry
-//          * label. */
-//         std::stringstream name;
-//         name << '@' << labelName << '-' << labelSeq++;
-//         anchor = a.newNamedLabel(name.str().c_str());
-//     }
+    if (!labelName) {
+        anchor = a.newLabel();
+    } else {
+        /* This is the entry label for a function. Create an unique
+         * name for the anchor label. It is necessary to include a
+         * sequence number in the label name because if the module is
+         * huge more than one veneer can be created for each entry
+         * label. */
+        std::stringstream name;
+        name << '@' << labelName << '-' << labelSeq++;
+        anchor = a.newNamedLabel(name.str().c_str());
+    }
 
-//     auto it = _veneers.emplace(target.id(),
-//                                Veneer{.latestOffset = maxOffset,
-//                                       .anchor = anchor,
-//                                       .target = target});
+    auto it = _veneers.emplace(target.id(),
+                               Veneer{.latestOffset = maxOffset,
+                                      .anchor = anchor,
+                                      .target = target});
 
-//     const Veneer &veneer = it->second;
-//     _pending_veneers.emplace(veneer);
+    const Veneer &veneer = it->second;
+    _pending_veneers.emplace(veneer);
 
-//     return veneer.anchor;
-// }
+    return veneer.anchor;
+}
 
-// const Label &BeamModuleAssembler::resolve_fragment(void (*fragment)(),
-//                                                    enum Displacement disp) {
-//     auto it = _dispatchTable.find(fragment);
+const Label &BeamModuleAssembler::resolve_fragment(void (*fragment)(),
+                                                   enum Displacement disp) {
+    auto it = _dispatchTable.find(fragment);
 
-//     if (it == _dispatchTable.end()) {
-//         it = _dispatchTable.emplace(fragment, a.newLabel()).first;
-//     }
+    if (it == _dispatchTable.end()) {
+        it = _dispatchTable.emplace(fragment, a.newLabel()).first;
+    }
 
-//     return resolve_label(it->second, disp);
-// }
+    return resolve_label(it->second, disp);
+}
 
 // arm::Mem BeamModuleAssembler::embed_constant(const ArgVal &value,
 //                                              enum Displacement disp) {
