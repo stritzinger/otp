@@ -36,7 +36,7 @@ int BeamModuleAssembler::emit_bs_get_field_size(const ArgSource &Size,
                                                 int unit,
                                                 Label fail,
                                                 const a32::Gp &out) {
-    ASSERT(false); // TODO
+    // TODO
     return -1;
 }
 
@@ -44,12 +44,12 @@ void BeamModuleAssembler::emit_i_bs_init_heap(const ArgWord &Size,
                                               const ArgWord &Heap,
                                               const ArgWord &Live,
                                               const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* Set the error reason when a size check has failed. */
 void BeamGlobalAssembler::emit_bs_size_check_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init_fail_heap(const ArgSource &Size,
@@ -57,40 +57,40 @@ void BeamModuleAssembler::emit_i_bs_init_fail_heap(const ArgSource &Size,
                                                    const ArgLabel &Fail,
                                                    const ArgWord &Live,
                                                    const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init(const ArgWord &Size,
                                          const ArgWord &Live,
                                          const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init_fail(const ArgRegister &Size,
                                               const ArgLabel &Fail,
                                               const ArgWord &Live,
                                               const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init_bits(const ArgWord &NumBits,
                                               const ArgWord &Live,
                                               const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init_bits_heap(const ArgWord &NumBits,
                                                    const ArgWord &Alloc,
                                                    const ArgWord &Live,
                                                    const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init_bits_fail(const ArgRegister &NumBits,
                                                    const ArgLabel &Fail,
                                                    const ArgWord &Live,
                                                    const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_init_bits_fail_heap(
@@ -99,79 +99,79 @@ void BeamModuleAssembler::emit_i_bs_init_bits_fail_heap(
         const ArgLabel &Fail,
         const ArgWord &Live,
         const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_put_string(const ArgWord &Size,
                                              const ArgBytePtr &Ptr) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_integer_imm(const ArgSource &Src,
                                                         const ArgLabel &Fail,
                                                         const ArgWord &Sz,
                                                         const ArgWord &Flags) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_integer(const ArgLabel &Fail,
                                                     const ArgRegister &Sz,
                                                     const ArgWord &Flags,
                                                     const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_binary(const ArgLabel &Fail,
                                                    const ArgSource &Sz,
                                                    const ArgWord &Flags,
                                                    const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_binary_all(const ArgSource &Src,
                                                        const ArgLabel &Fail,
                                                        const ArgWord &Unit) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_binary_imm(const ArgLabel &Fail,
                                                        const ArgWord &Sz,
                                                        const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_float(const ArgLabel &Fail,
                                                   const ArgRegister &Sz,
                                                   const ArgWord &Flags,
                                                   const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_new_bs_put_float_imm(const ArgLabel &Fail,
                                                       const ArgWord &Sz,
                                                       const ArgWord &Flags,
                                                       const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_start_match3(const ArgRegister &Src,
                                                  const ArgWord &Live,
                                                  const ArgLabel &Fail,
                                                  const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_match_string(const ArgRegister &Ctx,
                                                  const ArgLabel &Fail,
                                                  const ArgWord &Bits,
                                                  const ArgBytePtr &Ptr) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_get_position(const ArgRegister &Ctx,
                                                const ArgRegister &Dst,
                                                const ArgWord &Live) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_get_integer2(const ArgLabel &Fail,
@@ -181,18 +181,18 @@ void BeamModuleAssembler::emit_bs_get_integer2(const ArgLabel &Fail,
                                                const ArgWord &Unit,
                                                const ArgWord &Flags,
                                                const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_test_tail2(const ArgLabel &Fail,
                                              const ArgRegister &Ctx,
                                              const ArgWord &Offset) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_set_position(const ArgRegister &Ctx,
                                                const ArgRegister &Pos) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_get_binary_all2(const ArgRegister &Ctx,
@@ -200,36 +200,36 @@ void BeamModuleAssembler::emit_i_bs_get_binary_all2(const ArgRegister &Ctx,
                                                     const ArgWord &Live,
                                                     const ArgWord &Unit,
                                                     const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamGlobalAssembler::emit_bs_get_tail_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_get_tail(const ArgRegister &Ctx,
                                            const ArgRegister &Dst,
                                            const ArgWord &Live) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* Bits to skip are passed in ARG1 */
 void BeamModuleAssembler::emit_bs_skip_bits(const ArgLabel &Fail,
                                             const ArgRegister &Ctx) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_skip_bits2(const ArgRegister &Ctx,
                                                const ArgRegister &Size,
                                                const ArgLabel &Fail,
                                                const ArgWord &Unit) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_skip_bits_imm2(const ArgLabel &Fail,
                                                    const ArgRegister &Ctx,
                                                    const ArgWord &Bits) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_get_binary2(const ArgRegister &Ctx,
@@ -238,7 +238,7 @@ void BeamModuleAssembler::emit_i_bs_get_binary2(const ArgRegister &Ctx,
                                                 const ArgSource &Size,
                                                 const ArgWord &Flags,
                                                 const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_get_float2(const ArgRegister &Ctx,
@@ -247,17 +247,17 @@ void BeamModuleAssembler::emit_i_bs_get_float2(const ArgRegister &Ctx,
                                                const ArgSource &Sz,
                                                const ArgWord &Flags,
                                                const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_utf8_size(const ArgSource &Src,
                                               const ArgXRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_put_utf8(const ArgLabel &Fail,
                                              const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -270,7 +270,7 @@ void BeamModuleAssembler::emit_i_bs_put_utf8(const ArgLabel &Fail,
  * return value.
  */
 void BeamGlobalAssembler::emit_bs_get_utf8_short_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -283,77 +283,77 @@ void BeamGlobalAssembler::emit_bs_get_utf8_short_shared() {
  * failure, ARG1 contains an invalid term where the tags bits are zero.
  */
 void BeamGlobalAssembler::emit_bs_get_utf8_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_get_utf8(const ArgRegister &Ctx,
                                            const ArgLabel &Fail) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_get_utf8(const ArgRegister &Ctx,
                                              const ArgLabel &Fail,
                                              const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_skip_utf8(const ArgRegister &Ctx,
                                               const ArgLabel &Fail) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_utf16_size(const ArgSource &Src,
                                                const ArgXRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_put_utf16(const ArgLabel &Fail,
                                               const ArgWord &Flags,
                                               const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_get_utf16(const ArgRegister &Ctx,
                                             const ArgLabel &Fail,
                                             const ArgWord &Flags) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_get_utf16(const ArgRegister &Ctx,
                                               const ArgLabel &Fail,
                                               const ArgWord &Flags,
                                               const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_skip_utf16(const ArgRegister &Ctx,
                                                const ArgLabel &Fail,
                                                const ArgWord &Flags) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_validate_unicode(Label next,
                                                 Label fail,
                                                 a32::Gp value) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_validate_unicode(const ArgLabel &Fail,
                                                      const ArgSource &Src) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_validate_unicode_retract(
         const ArgLabel &Fail,
         const ArgSource &Src,
         const ArgRegister &Ms) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_test_unit(const ArgLabel &Fail,
                                             const ArgRegister &Ctx,
                                             const ArgWord &Unit) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = current `Size`,
@@ -362,14 +362,14 @@ void BeamModuleAssembler::emit_bs_test_unit(const ArgLabel &Fail,
  *
  * Error is indicated through cond_ne() */
 void BeamGlobalAssembler::emit_bs_add_guard_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = current `Size`,
  * ARG3 = elements to `Add`,
  * ARG4 = element `Unit` */
 void BeamGlobalAssembler::emit_bs_add_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_add(const ArgLabel &Fail,
@@ -377,7 +377,7 @@ void BeamModuleAssembler::emit_bs_add(const ArgLabel &Fail,
                                       const ArgSource &Add,
                                       const ArgWord &Unit,
                                       const ArgXRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_append(const ArgLabel &Fail,
@@ -387,7 +387,7 @@ void BeamModuleAssembler::emit_i_bs_append(const ArgLabel &Fail,
                                            const ArgSource &Size,
                                            const ArgSource &Bin,
                                            const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_private_append(const ArgLabel &Fail,
@@ -395,22 +395,22 @@ void BeamModuleAssembler::emit_i_bs_private_append(const ArgLabel &Fail,
                                                    const ArgSource &Size,
                                                    const ArgRegister &Src,
                                                    const ArgXRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_bs_init_writable() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamGlobalAssembler::emit_bs_create_bin_error_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
  * ARG1 = tagged bignum term
  */
 void BeamGlobalAssembler::emit_get_sint64_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 struct BscSegment {
@@ -447,7 +447,7 @@ struct BscSegment {
 
 static std::vector<BscSegment> bs_combine_segments(
         const std::vector<BscSegment> segments) {
-    ASSERT(false); // TODO
+    // TODO
     return std::vector<BscSegment>();
 }
 
@@ -471,14 +471,14 @@ void BeamModuleAssembler::update_bin_state(a32::Gp bin_offset,
                                            Sint bit_offset,
                                            Sint size,
                                            a32::Gp size_reg) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
  * The size of the segment is assumed to be in ARG3.
  */
 void BeamModuleAssembler::set_zero(Sint effectiveSize) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -494,13 +494,13 @@ void BeamModuleAssembler::set_zero(Sint effectiveSize) {
  *   Preserves other ARG* registers, clobbers TMP* registers
  */
 void BeamGlobalAssembler::emit_construct_utf8_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_construct_utf8(const ArgVal &Src,
                                               Sint bit_offset,
                                               bool is_byte_aligned) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -511,7 +511,7 @@ void BeamModuleAssembler::emit_construct_utf8(const ArgVal &Src,
  *   ARG8 = data to write
  */
 void BeamGlobalAssembler::emit_store_unaligned() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -525,7 +525,7 @@ void BeamGlobalAssembler::emit_store_unaligned() {
  */
 
 void BeamGlobalAssembler::emit_bs_init_bits_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
@@ -533,7 +533,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                                                const ArgWord &Live0,
                                                const ArgRegister &Dst,
                                                const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -571,7 +571,7 @@ void BeamModuleAssembler::emit_read_bits(Uint bits,
                                          const a32::Gp bin_base,
                                          const a32::Gp bin_offset,
                                          const a32::Gp bitdata) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_extract_integer(const a32::Gp &bitdata,
@@ -580,28 +580,28 @@ void BeamModuleAssembler::emit_extract_integer(const a32::Gp &bitdata,
                                                Uint position,
                                                Uint bits,
                                                const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_extract_bitstring(const a32::Gp bitdata,
                                                  Uint position,
                                                  Uint bits,
                                                  const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 static std::vector<BsmSegment> opt_bsm_segments(
         const std::vector<BsmSegment> segments,
         const ArgWord &Need,
         const ArgWord &Live) {
-    ASSERT(false); // TODO
+    // TODO
     return std::vector<BsmSegment>();
 }
 
 void BeamModuleAssembler::emit_i_bs_match(ArgLabel const &Fail,
                                           ArgRegister const &Ctx,
                                           Span<ArgVal> const &List) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bs_match_test_heap(ArgLabel const &Fail,
@@ -609,5 +609,5 @@ void BeamModuleAssembler::emit_i_bs_match_test_heap(ArgLabel const &Fail,
                                                     ArgWord const &Need,
                                                     ArgWord const &Live,
                                                     Span<ArgVal> const &List) {
-    ASSERT(false); // TODO
+    // TODO
 }

@@ -32,7 +32,7 @@ void BeamModuleAssembler::emit_add_sub_types(bool is_small_result,
                                              const ArgSource &RHS,
                                              const a32::Gp rhs_reg,
                                              const Label next) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_are_both_small(const ArgSource &LHS,
@@ -40,7 +40,7 @@ void BeamModuleAssembler::emit_are_both_small(const ArgSource &LHS,
                                               const ArgSource &RHS,
                                               const a32::Gp rhs_reg,
                                               const Label next) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -53,7 +53,7 @@ void BeamModuleAssembler::emit_are_both_small(const ArgSource &LHS,
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_plus_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_plus(const ArgLabel &Fail,
@@ -61,7 +61,7 @@ void BeamModuleAssembler::emit_i_plus(const ArgLabel &Fail,
                                       const ArgSource &LHS,
                                       const ArgSource &RHS,
                                       const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -73,14 +73,14 @@ void BeamModuleAssembler::emit_i_plus(const ArgLabel &Fail,
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_unary_minus_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_unary_minus(const ArgLabel &Fail,
                                              const ArgWord &Live,
                                              const ArgSource &Src,
                                              const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -93,7 +93,7 @@ void BeamModuleAssembler::emit_i_unary_minus(const ArgLabel &Fail,
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_minus_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_minus(const ArgLabel &Fail,
@@ -101,7 +101,7 @@ void BeamModuleAssembler::emit_i_minus(const ArgLabel &Fail,
                                        const ArgSource &LHS,
                                        const ArgSource &RHS,
                                        const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -114,7 +114,7 @@ void BeamModuleAssembler::emit_i_minus(const ArgLabel &Fail,
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_int128_to_big_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = Src1
@@ -124,7 +124,7 @@ void BeamGlobalAssembler::emit_int128_to_big_shared() {
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_mul_add_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = Src1
@@ -135,7 +135,7 @@ void BeamGlobalAssembler::emit_mul_add_body_shared() {
  * the call failed).
  */
 void BeamGlobalAssembler::emit_mul_add_guard_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = Src1
@@ -144,7 +144,7 @@ void BeamGlobalAssembler::emit_mul_add_guard_shared() {
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_mul_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = Src1
@@ -154,7 +154,7 @@ void BeamGlobalAssembler::emit_mul_body_shared() {
  * the call failed).
  */
 void BeamGlobalAssembler::emit_mul_guard_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
@@ -163,7 +163,7 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
                                          const ArgSource &Src3,
                                          const ArgSource &Src4,
                                          const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -174,7 +174,7 @@ void BeamModuleAssembler::emit_i_mul_add(const ArgLabel &Fail,
  * Error is indicated by the Z flag.
  */
 void BeamGlobalAssembler::emit_int_div_rem_guard_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* ARG2 = LHS
@@ -194,7 +194,7 @@ void BeamModuleAssembler::emit_div_rem_literal(Sint divisor,
                                                const Label &generic,
                                                bool need_div,
                                                bool need_rem) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_div_rem(const ArgLabel &Fail,
@@ -205,7 +205,7 @@ void BeamModuleAssembler::emit_div_rem(const ArgLabel &Fail,
                                        const ArgRegister &Remainder,
                                        bool need_div,
                                        bool need_rem) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_rem_div(const ArgLabel &Fail,
@@ -214,7 +214,7 @@ void BeamModuleAssembler::emit_i_rem_div(const ArgLabel &Fail,
                                          const ArgSource &RHS,
                                          const ArgRegister &Remainder,
                                          const ArgRegister &Quotient) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_div_rem(const ArgLabel &Fail,
@@ -223,7 +223,7 @@ void BeamModuleAssembler::emit_i_div_rem(const ArgLabel &Fail,
                                          const ArgSource &RHS,
                                          const ArgRegister &Quotient,
                                          const ArgRegister &Remainder) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_int_div(const ArgLabel &Fail,
@@ -231,7 +231,7 @@ void BeamModuleAssembler::emit_i_int_div(const ArgLabel &Fail,
                                          const ArgSource &LHS,
                                          const ArgSource &RHS,
                                          const ArgRegister &Quotient) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_rem(const ArgLabel &Fail,
@@ -239,7 +239,7 @@ void BeamModuleAssembler::emit_i_rem(const ArgLabel &Fail,
                                      const ArgSource &LHS,
                                      const ArgSource &RHS,
                                      const ArgRegister &Remainder) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_m_div(const ArgLabel &Fail,
@@ -247,7 +247,7 @@ void BeamModuleAssembler::emit_i_m_div(const ArgLabel &Fail,
                                        const ArgSource &LHS,
                                        const ArgSource &RHS,
                                        const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -262,11 +262,11 @@ void BeamModuleAssembler::emit_i_m_div(const ArgLabel &Fail,
 template<typename T>
 void BeamGlobalAssembler::emit_bitwise_fallback_body(T(*func_ptr),
                                                      const ErtsCodeMFA *mfa) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamGlobalAssembler::emit_i_band_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_band(const ArgLabel &Fail,
@@ -274,7 +274,7 @@ void BeamModuleAssembler::emit_i_band(const ArgLabel &Fail,
                                       const ArgSource &LHS,
                                       const ArgSource &RHS,
                                       const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -287,7 +287,7 @@ void BeamModuleAssembler::emit_i_band(const ArgLabel &Fail,
  * Result is returned in RET.
  */
 void BeamGlobalAssembler::emit_i_bor_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bor(const ArgLabel &Fail,
@@ -295,7 +295,7 @@ void BeamModuleAssembler::emit_i_bor(const ArgLabel &Fail,
                                      const ArgSource &LHS,
                                      const ArgSource &RHS,
                                      const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -308,7 +308,7 @@ void BeamModuleAssembler::emit_i_bor(const ArgLabel &Fail,
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_i_bxor_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bxor(const ArgLabel &Fail,
@@ -316,7 +316,7 @@ void BeamModuleAssembler::emit_i_bxor(const ArgLabel &Fail,
                                       const ArgSource &LHS,
                                       const ArgSource &RHS,
                                       const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -329,7 +329,7 @@ void BeamModuleAssembler::emit_i_bxor(const ArgLabel &Fail,
  * THE_NON_VALUE.
  */
 void BeamGlobalAssembler::emit_i_bnot_guard_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -341,14 +341,14 @@ void BeamGlobalAssembler::emit_i_bnot_guard_shared() {
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_i_bnot_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_bnot(const ArgLabel &Fail,
                                       const ArgWord &Live,
                                       const ArgSource &Src,
                                       const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -370,7 +370,7 @@ void BeamModuleAssembler::emit_i_bsr(const ArgLabel &Fail,
                                      const ArgSource &LHS,
                                      const ArgSource &RHS,
                                      const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -383,7 +383,7 @@ void BeamModuleAssembler::emit_i_bsr(const ArgLabel &Fail,
  * The result is returned in ARG1.
  */
 void BeamGlobalAssembler::emit_i_bsl_body_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 static int count_leading_zeroes(UWord value) {
@@ -401,5 +401,5 @@ void BeamModuleAssembler::emit_i_bsl(const ArgLabel &Fail,
                                      const ArgSource &LHS,
                                      const ArgSource &RHS,
                                      const ArgRegister &Dst) {
-    ASSERT(false); // TODO
+    // TODO
 }

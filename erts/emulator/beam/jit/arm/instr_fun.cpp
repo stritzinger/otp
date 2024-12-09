@@ -30,7 +30,7 @@
  * ARG5 = address of the call_fun instruction that got us here. Note that we
  *        can't use LR (x30) for this because tail calls point elsewhere. */
 void BeamGlobalAssembler::emit_unloaded_fun() {
-    ASSERT(false); // TODO
+    // TODO
     }
 
 
@@ -42,7 +42,7 @@ void BeamGlobalAssembler::emit_unloaded_fun() {
  * ARG5 = address of the call_fun instruction that got us here. Note that we
  *        can't use LR (x30) for this because tail calls point elsewhere. */
 void BeamGlobalAssembler::emit_handle_call_fun_error() {
-    ASSERT(false); // TODO
+    // TODO
     }
 
 
@@ -55,7 +55,7 @@ void BeamGlobalAssembler::emit_handle_call_fun_error() {
  * When the active code index is ERTS_SAVE_CALLS_CODE_IX, all local fun calls
  * will land here. */
 void BeamGlobalAssembler::emit_dispatch_save_calls_fun() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* `call_fun` instructions land here to set up their environment before jumping
@@ -69,7 +69,7 @@ void BeamModuleAssembler::emit_i_lambda_trampoline(const ArgLambda &Lambda,
                                                    const ArgLabel &Lbl,
                                                    const ArgWord &Arity,
                                                    const ArgWord &NumFree) {
-    ASSERT(false); // TODO
+    // TODO
         }
 
 
@@ -80,14 +80,14 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
                                            const ArgWord &Arity,
                                            const ArgWord &NumFree,
                                            const Span<ArgVal> &env) {
-    ASSERT(false); // TODO
+    // TODO
         }
 
 
 
 
 void BeamGlobalAssembler::emit_apply_fun_shared() {
-    ASSERT(false); // TODO
+    // TODO
         }
 
 
@@ -95,15 +95,15 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
 
 
 void BeamModuleAssembler::emit_i_apply_fun() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_apply_fun_last(const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_apply_fun_only() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* Assumes that:
@@ -111,7 +111,7 @@ void BeamModuleAssembler::emit_i_apply_fun_only() {
  *   ARG4 = fun thing */
 a32::Gp BeamModuleAssembler::emit_call_fun(bool skip_box_test,
                                            bool skip_header_test) {
-    ASSERT(false); // TODO
+    // TODO
     a32::Gp reg;
     return reg;
 }
@@ -122,7 +122,7 @@ a32::Gp BeamModuleAssembler::emit_call_fun(bool skip_box_test,
 void BeamModuleAssembler::emit_i_call_fun2(const ArgVal &Tag,
                                            const ArgWord &Arity,
                                            const ArgRegister &Func) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 
@@ -130,20 +130,20 @@ void BeamModuleAssembler::emit_i_call_fun2_last(const ArgVal &Tag,
                                                 const ArgWord &Arity,
                                                 const ArgRegister &Func,
                                                 const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 
 void BeamModuleAssembler::emit_i_call_fun(const ArgWord &Arity) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call_fun_last(const ArgWord &Arity,
                                                const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* Psuedo-instruction for signalling lambda load errors. Never actually runs. */
 void BeamModuleAssembler::emit_i_lambda_error(const ArgWord &Dummy) {
-    ASSERT(false); // TODO
+    // TODO
 }

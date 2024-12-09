@@ -95,15 +95,15 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *ga,
 
 
 void BeamModuleAssembler::emit_i_nif_padding() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamGlobalAssembler::emit_i_breakpoint_trampoline_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_breakpoint_trampoline() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 static void i_emit_nyi(char *msg) {
@@ -111,7 +111,7 @@ static void i_emit_nyi(char *msg) {
 }
 
 void BeamModuleAssembler::emit_nyi(const char *msg) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_nyi() {
@@ -152,7 +152,7 @@ bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
 //  */
 
 void BeamGlobalAssembler::emit_i_func_info_shared() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
@@ -213,7 +213,7 @@ void BeamModuleAssembler::emit_aligned_label(const ArgLabel &Label,
 }
 
 void BeamModuleAssembler::emit_on_load() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::bind_veneer_target(const Label &target) {
@@ -235,7 +235,7 @@ void BeamModuleAssembler::bind_veneer_target(const Label &target) {
 }
 
 void BeamModuleAssembler::emit_int_code_end() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_line(const ArgWord &Loc) {
@@ -251,7 +251,7 @@ void BeamModuleAssembler::emit_line(const ArgWord &Loc) {
      * Since line addresses are taken _after_ line instructions we can avoid
      * this by adding a nop when we detect this condition. */
 
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_func_line(const ArgWord &Loc) {
@@ -412,7 +412,7 @@ const Label &BeamModuleAssembler::resolve_fragment(void (*fragment)(),
 // }
 
 void BeamModuleAssembler::emit_i_flush_stubs() {
-        ASSERT(false); // TODO
+        // TODO
 }
 
 void BeamModuleAssembler::check_pending_stubs() {
@@ -486,9 +486,9 @@ void BeamModuleAssembler::flush_pending_stubs(size_t range) {
 }
 
 void BeamModuleAssembler::emit_veneer(const Veneer &veneer) {
-        ASSERT(false); // TODO
+        // TODO
 }
 
 void BeamModuleAssembler::emit_constant(const Constant &constant) {
-        ASSERT(false); // TODO
+        // TODO
 }

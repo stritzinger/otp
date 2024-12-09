@@ -27,7 +27,7 @@ using namespace asmjit;
 
 template<typename T>
 static constexpr bool isInt13(T value) {
-    ASSERT(false); // TODO
+    // TODO
     return false;
 }
 
@@ -42,7 +42,7 @@ static constexpr bool isInt13(T value) {
  * This function finds the `base` and `shift` that result in the most number
  * of elements fitting in a 13-bit immediate. */
 static std::pair<UWord, int> plan_untag(const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
     return std::pair<UWord, int>();
 }
 
@@ -53,35 +53,35 @@ const std::vector<ArgVal> BeamModuleAssembler::emit_select_untag(
         Label fail,
         UWord base,
         int shift) {
-    ASSERT(false); // TODO
+    // TODO
     return std::vector<ArgVal>();
 }
 
 void BeamModuleAssembler::emit_linear_search(a32::Gp comparand,
                                              Label fail,
                                              const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_select_tuple_arity(const ArgRegister &Src,
                                                     const ArgLabel &Fail,
                                                     const ArgWord &Size,
                                                     const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_select_val_lins(const ArgSource &Src,
                                                  const ArgVal &Fail,
                                                  const ArgWord &Size,
                                                  const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_select_val_bins(const ArgSource &Src,
                                                  const ArgVal &Fail,
                                                  const ArgWord &Size,
                                                  const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -93,7 +93,7 @@ void BeamModuleAssembler::emit_binsearch_nodes(a32::Gp reg,
                                                size_t Right,
                                                Label fail,
                                                const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_jump_on_val(const ArgSource &Src,
@@ -101,7 +101,7 @@ void BeamModuleAssembler::emit_i_jump_on_val(const ArgSource &Src,
                                              const ArgWord &Base,
                                              const ArgWord &Size,
                                              const Span<ArgVal> &args) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /*
@@ -121,5 +121,5 @@ void BeamModuleAssembler::emit_optimized_two_way_select(a32::Gp reg,
                                                         const ArgVal &value1,
                                                         const ArgVal &value2,
                                                         const ArgVal &label) {
-    ASSERT(false); // TODO
+    // TODO
 }

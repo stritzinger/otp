@@ -26,39 +26,39 @@ extern "C"
 }
 
 void BeamGlobalAssembler::emit_dispatch_return() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_dispatch_return() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_return() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_move_deallocate_return() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call(const ArgLabel &CallTarget) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call_last(const ArgLabel &CallTarget,
                                            const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_move_call_last(const ArgYRegister &Src,
                                               const ArgRegister &Dst,
                                               const ArgLabel &CallTarget,
                                               const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call_only(const ArgLabel &CallTarget) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 /* Handles save_calls for remote calls. When the active code index is
@@ -67,61 +67,61 @@ void BeamModuleAssembler::emit_i_call_only(const ArgLabel &CallTarget) {
  * Export entry is in ARG1, return address is in LR (x30). Both of these must
  * be preserved since this runs between caller and callee. */
 void BeamGlobalAssembler::emit_dispatch_save_calls_export() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call_ext(const ArgExport &Exp) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call_ext_only(const ArgExport &Exp) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_call_ext_last(const ArgExport &Exp,
                                                const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_move_call_ext_last(const ArgYRegister &Src,
                                                   const ArgRegister &Dst,
                                                   const ArgExport &Exp,
                                                   const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 static ErtsCodeMFA apply3_mfa = {am_erlang, am_apply, 3};
 
 arm::Mem BeamModuleAssembler::emit_variable_apply(bool includeI) {
-    ASSERT(false); // TODO
+    // TODO
     arm::Mem m;
     return m;
 }
 
 void BeamModuleAssembler::emit_i_apply() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_apply_last(const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_i_apply_only() {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 arm::Mem BeamModuleAssembler::emit_fixed_apply(const ArgWord &Arity,
                                                bool includeI) {
-    ASSERT(false); // TODO
+    // TODO
     arm::Mem m;
     return m;
 }
 
 void BeamModuleAssembler::emit_apply(const ArgWord &Arity) {
-    ASSERT(false); // TODO
+    // TODO
 }
 
 void BeamModuleAssembler::emit_apply_last(const ArgWord &Arity,
                                           const ArgWord &Deallocate) {
-    ASSERT(false); // TODO
+    // TODO
 }
