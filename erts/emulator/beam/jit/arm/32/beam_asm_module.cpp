@@ -95,14 +95,17 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *ga,
 
 void BeamModuleAssembler::emit_i_nif_padding() {
     // TODO
+    ASSERT(false);
 }
 
 void BeamGlobalAssembler::emit_i_breakpoint_trampoline_shared() {
     // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::emit_i_breakpoint_trampoline() {
     // TODO
+    ASSERT(false);
 }
 
 static void i_emit_nyi(char *msg) {
@@ -111,6 +114,7 @@ static void i_emit_nyi(char *msg) {
 
 void BeamModuleAssembler::emit_nyi(const char *msg) {
     // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::emit_nyi() {
@@ -152,6 +156,7 @@ bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
 
 void BeamGlobalAssembler::emit_i_func_info_shared() {
     // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
@@ -213,6 +218,7 @@ void BeamModuleAssembler::emit_aligned_label(const ArgLabel &Label,
 
 void BeamModuleAssembler::emit_on_load() {
     // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::bind_veneer_target(const Label &target) {
@@ -275,6 +281,7 @@ void BeamModuleAssembler::emit_line(const ArgWord &Loc) {
      * Since line addresses are taken _after_ line instructions we can avoid
      * this by adding a nop when we detect this condition. */
     // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::emit_func_line(const ArgWord &Loc) {
@@ -384,6 +391,7 @@ const Label &BeamModuleAssembler::resolve_fragment(void (*fragment)(),
 
 void BeamModuleAssembler::emit_i_flush_stubs() {
         // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::check_pending_stubs() {
@@ -458,8 +466,10 @@ void BeamModuleAssembler::flush_pending_stubs(size_t range) {
 
 void BeamModuleAssembler::emit_veneer(const Veneer &veneer) {
         // TODO
+    ASSERT(false);
 }
 
 void BeamModuleAssembler::emit_constant(const Constant &constant) {
         // TODO
+    ASSERT(false);
 }
