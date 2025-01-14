@@ -81,7 +81,15 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
 }
 
 void BeamGlobalAssembler::emit_apply_fun_shared() {
-    // TODO
+    // TODO this is the first called emitter
+    Label finished = a.newLabel();
+
+    /* Put the arity and fun into the right registers for `call_fun`, and stash
+     * the argument list in ARG5 for the error path. We'll bump the arity as
+     * we go through the argument list. */
+    mov_imm(ARG3, 0);
+    //a.mov(ARG4, getXRef(0));
+    //a.mov(ARG5, getXRef(1));
     ASSERT(false);
 }
 
