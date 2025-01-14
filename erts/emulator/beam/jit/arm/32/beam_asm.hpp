@@ -104,12 +104,6 @@ protected:
 
     const a32::Gp VAR = a32::r6;
 
-#ifdef ERTS_MSACC_EXTENDED_STATES
-    const arm::Mem erts_msacc_cache = getSchedulerRegRef(
-            offsetof(ErtsSchedulerRegisters, aux_regs.d.erts_msacc_cache));
-#endif
-
-    static const int num_register_backed_fregs = 8;
     constexpr arm::Mem getSchedulerRegRef(int offset) const {
         ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
         return arm::Mem(scheduler_registers, offset);
@@ -326,7 +320,19 @@ protected:
     template<typename T>
     void mov_imm(a32::Gp to, T value) {
         // TODO
-        ASSERT(false);
+        // implement this for emit_apply_fun_shared
+        static_assert(std::is_integral<T>::value || std::is_pointer<T>::value);
+        if (value) {
+            ASSERT(false);
+            a.mov(to, imm(value));
+        } else {
+            // arm64 uses the xzr register (ZERO) here and
+            // x86 uses some x86 specific instruction sequence
+            // to set the register to zero.
+            // We need to understand how one sets a register to zero in
+            // arm32
+            a.mov(to, 0);
+        }
     }
 
     void mov_imm(a32::Gp to, std::nullptr_t value) {
