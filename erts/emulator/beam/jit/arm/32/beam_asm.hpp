@@ -75,35 +75,41 @@ struct BeamAssembler : public BeamAssemblerCommon {
 protected:
     a32::Assembler a;
 
+    /*
+     * Caller-save Scratch Register
+     * Note that ARG1 is also the register for the return value.
+     */
+    const a32::Gp ARG1 = a32::r0; // holds return value from C function calls
+    const a32::Gp ARG2 = a32::r1;
+    const a32::Gp ARG3 = a32::r2;
+    const a32::Gp ARG4 = a32::r3;
+    /*
+     * Callee saved registers
+     */
     /* Points at x_reg_array inside an ErtsSchedulerRegisters struct, allowing
      * the aux_regs field to be addressed with an 8-bit displacement. */
-    const a32::Gp scheduler_registers = a32::r10;
-
-    const a32::Gp E = a32::fp;
-
-    const a32::Gp c_p = a32::r7;
-    const a32::Gp FCALLS = a32::r8;
-    const a32::Gp HTOP = a32::r9;
-
+    const a32::Gp scheduler_registers = a32::r4;
     /* Local copy of the active code index.
      *
      * This is set to ERTS_SAVE_CALLS_CODE_IX when save_calls is active, which
      * routes us to a common handler routine that calls save_calls before
      * jumping to the actual code. */
-    const a32::Gp active_code_ix = a32::r6;
+    const a32::Gp active_code_ix = a32::r5;
+    // Callee saved, used as generic register based variable
+    const a32::Gp VAR = a32::r6;
+    // BEAM VM Special Registers
+    const a32::Gp E = a32::r7; // Top of the Stack
+    const a32::Gp c_p = a32::r8; // Continuation Pointer
+    const a32::Gp FCALLS = a32::r9; // reduction counter
+    const a32::Gp HTOP = a32::r10; // Top of the heap
+    // R11 (FP) is the Frame pointer in arm mode
+    // R12 (Intra-Procedure Call Scratch Register)
+    // Used as a temporary scratch register (caller saved).
+    const a32::Gp TMP = a32::r12;
+    // R13 (SP) Stack Pointer
+    // R14 (LR) Link back to calling routine
+    // R15 (PC) Program Counter
 
-    static const int num_register_backed_xregs = 0;
-    const a32::Gp register_backed_xregs[num_register_backed_xregs] = {};
-
-    /*
-     * All of the following registers are caller-save.
-     * (TODO: is this the same for arm 32?)
-     *
-     * Note that ARG1 is also the register for the return value.
-     */
-    const a32::Gp ARG3 = a32::r2;
-    const a32::Gp ARG4 = a32::r3;
-    const a32::Gp ARG5 = a32::r4;
 
     constexpr arm::Mem getSchedulerRegRef(int offset) const {
         ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
