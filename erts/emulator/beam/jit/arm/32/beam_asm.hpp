@@ -247,13 +247,13 @@ protected:
      * needed. */
 
     template<int Spec = 0>
-    void emit_enter_runtime(int live = num_register_backed_xregs) {
+    void emit_enter_runtime() {
         // TODO
         ASSERT(false);
     }
 
     template<int Spec = 0>
-    void emit_leave_runtime(int live = num_register_backed_xregs) {
+    void emit_leave_runtime() {
         // TODO
         ASSERT(false);
     }
