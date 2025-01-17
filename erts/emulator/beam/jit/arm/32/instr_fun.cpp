@@ -85,12 +85,76 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
     Label finished = a.newLabel();
 
     /* Put the arity and fun into the right registers for `call_fun`, and stash
-     * the argument list in ARG5 for the error path. We'll bump the arity as
+     * the argument list in ARG2 for the error path. We'll bump the arity as
      * we go through the argument list. */
     mov_imm(ARG3, 0);
-    //a.mov(ARG4, getXRef(0));
-    //a.mov(ARG5, getXRef(1));
-    ASSERT(false);
+    a.ldr(ARG4, getXRef(0));
+    a.ldr(ARG2, getXRef(1));
+    {
+        Label unpack_next = a.newLabel(), malformed_list = a.newLabel(),
+              raise_error = a.newLabel();
+
+        auto x_register = getXRef(0);
+
+        ASSERT(x_register.shift() == 0);
+        x_register.setIndex(ARG3);
+        x_register.setShift(3);
+
+        a.mov(ARG1, ARG2);
+        a.bind(unpack_next);
+        {
+            a.cmp(ARG1, imm(NIL));
+            a.b_eq(finished);
+
+            ERTS_CT_ASSERT(_TAG_PRIMARY_MASK - TAG_PRIMARY_LIST == (1 << 1));
+            // TODO
+            ASSERT(false);
+            //a.tbnz(ARG1, imm(1), malformed_list);
+
+            //emit_ptr_val(ARG1, ARG1);
+            //a.sub(ARG1, ARG1, imm(TAG_PRIMARY_LIST));
+            //a.ldp(TMP3, ARG1, arm::Mem(ARG1));
+            //a.str(TMP3, arm::Mem(TMP2).post(sizeof(Eterm)));
+
+            /* We bail at MAX_REG-1 rather than MAX_REG as the highest register
+             * is reserved for the loader. */
+            //a.add(ARG3, ARG3, imm(1));
+            //a.cmp(ARG3, imm(MAX_REG - 1));
+            //a.b_lo(unpack_next);
+        }
+
+        a.mov(ARG1, imm(SYSTEM_LIMIT));
+        a.b(raise_error);
+
+        a.bind(malformed_list);
+        a.mov(ARG1, imm(BADARG));
+
+        a.bind(raise_error);
+        {
+            static const ErtsCodeMFA apply_mfa = {am_erlang, am_apply, 2};
+            // TODO
+            ASSERT(false);
+
+            //a.mov(XREG0, ARG4);
+            //a.mov(XREG1, ARG5);
+
+            //a.str(TMP1, arm::Mem(c_p, offsetof(Process, freason)));
+            //mov_imm(ARG4, &apply_mfa);
+            //a.b(labels[raise_exception]);
+        }
+    }
+
+    a.bind(finished);
+    {
+        /* Make the lower 16 bits of ARG3 equal those of the header word of all
+         * funs with the same arity. */
+        a.lsl(ARG3, ARG3, imm(FUN_HEADER_ARITY_OFFS));
+        a.add(ARG3, ARG3, imm(FUN_SUBTAG));
+
+       // TODO
+       ASSERT(false);
+       // a.ret(a32::r14);
+    }
 }
 
 void BeamModuleAssembler::emit_i_apply_fun() {
