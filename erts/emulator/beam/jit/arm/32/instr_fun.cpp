@@ -136,8 +136,8 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
             a.str(ARG2, getXRef(1));
 
             a.str(ARG1, arm::Mem(c_p, offsetof(Process, freason)));
-            //mov_imm(ARG4, &apply_mfa);
-            //a.b(labels[raise_exception]);
+            mov_imm(ARG4, &apply_mfa);
+            a.b(labels[raise_exception]);
         }
     }
 
