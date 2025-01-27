@@ -112,6 +112,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
 
             emit_ptr_val(ARG1, ARG1);
             a.sub(ARG1, ARG1, imm(TAG_PRIMARY_LIST));
+            a.ldmia(arm::Mem(ARG1), a32::GpList({TMP, ARG1}));
             //a.str(TMP3, arm::Mem(TMP2).post(sizeof(Eterm)));
 
             /* We bail at MAX_REG-1 rather than MAX_REG as the highest register
