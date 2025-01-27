@@ -117,9 +117,9 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
 
             /* We bail at MAX_REG-1 rather than MAX_REG as the highest register
              * is reserved for the loader. */
-            //a.add(ARG3, ARG3, imm(1));
-            //a.cmp(ARG3, imm(MAX_REG - 1));
-            //a.b_lo(unpack_next);
+            a.add(ARG3, ARG3, imm(1));
+            a.cmp(ARG3, imm(MAX_REG - 1));
+            a.b_lo(unpack_next);
         }
 
         a.mov(ARG1, imm(SYSTEM_LIMIT));
