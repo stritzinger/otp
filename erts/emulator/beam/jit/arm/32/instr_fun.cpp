@@ -131,11 +131,9 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
         a.bind(raise_error);
         {
             static const ErtsCodeMFA apply_mfa = {am_erlang, am_apply, 2};
-            // TODO
-            ASSERT(false);
 
-            //a.mov(XREG0, ARG4);
-            //a.mov(XREG1, ARG5);
+            a.str(ARG4, getXRef(0));
+            a.str(ARG2, getXRef(1));
 
             //a.str(TMP1, arm::Mem(c_p, offsetof(Process, freason)));
             //mov_imm(ARG4, &apply_mfa);
