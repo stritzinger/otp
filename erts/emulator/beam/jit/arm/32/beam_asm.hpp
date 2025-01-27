@@ -102,6 +102,8 @@ protected:
     const a32::Gp ARG3 = a32::r2;
     const a32::Gp ARG4 = a32::r3;
 
+    const a32::Gp TMP = a32::r12;
+
     const a32::Gp VAR = a32::r6;
 
     constexpr arm::Mem getSchedulerRegRef(int offset) const {
