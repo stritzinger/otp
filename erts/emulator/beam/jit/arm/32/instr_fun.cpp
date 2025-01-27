@@ -111,8 +111,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
             a.b_ne(malformed_list),
 
             emit_ptr_val(ARG1, ARG1);
-            //a.sub(ARG1, ARG1, imm(TAG_PRIMARY_LIST));
-            //a.ldp(TMP3, ARG1, arm::Mem(ARG1));
+            a.sub(ARG1, ARG1, imm(TAG_PRIMARY_LIST));
             //a.str(TMP3, arm::Mem(TMP2).post(sizeof(Eterm)));
 
             /* We bail at MAX_REG-1 rather than MAX_REG as the highest register
