@@ -267,10 +267,14 @@ protected:
     }
 
     a32::Gp emit_ptr_val(a32::Gp Dst, a32::Gp Src) {
-        a32::Gp r;
+#if !defined(TAG_LITERAL_PTR)
+        return Src;
+#else
         // TODO
+        // TAG_LITERAL_PTR is undefined in ARCH_32 and may be not needed
         ASSERT(false);
-        return r;
+        return Dst;
+#endif
     }
 
     void emit_untag_ptr(a32::Gp Dst, a32::Gp Src) {

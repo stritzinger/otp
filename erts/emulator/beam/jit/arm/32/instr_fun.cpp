@@ -110,10 +110,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
             a.tst(ARG1, imm(1)),
             a.b_ne(malformed_list),
 
-            // TODO
-            ASSERT(false);
-
-            //emit_ptr_val(ARG1, ARG1);
+            emit_ptr_val(ARG1, ARG1);
             //a.sub(ARG1, ARG1, imm(TAG_PRIMARY_LIST));
             //a.ldp(TMP3, ARG1, arm::Mem(ARG1));
             //a.str(TMP3, arm::Mem(TMP2).post(sizeof(Eterm)));
