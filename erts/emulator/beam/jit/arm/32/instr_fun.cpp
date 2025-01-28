@@ -148,9 +148,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
         a.lsl(ARG3, ARG3, imm(FUN_HEADER_ARITY_OFFS));
         a.add(ARG3, ARG3, imm(FUN_SUBTAG));
 
-       // TODO
-       ASSERT(false);
-       // a.ret(a32::r14);
+       a.b(a32::lr);
     }
 }
 
