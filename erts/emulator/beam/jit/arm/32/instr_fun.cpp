@@ -98,7 +98,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
 
         ASSERT(x_register.shift() == 0);
         x_register.setIndex(ARG3);
-        x_register.setShift(3);
+        x_register.setShift(2);
 
         a.mov(ARG1, ARG2);
         a.bind(unpack_next);
