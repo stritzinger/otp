@@ -94,7 +94,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
         Label unpack_next = a.newLabel(), malformed_list = a.newLabel(),
               raise_error = a.newLabel();
 
-        auto x_register = getXRef(0);
+        auto x_register = arm::Mem(scheduler_registers);
 
         ASSERT(x_register.shift() == 0);
         x_register.setIndex(ARG3);
