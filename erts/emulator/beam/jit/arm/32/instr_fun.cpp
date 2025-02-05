@@ -107,8 +107,8 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
             a.b_eq(finished);
 
             ERTS_CT_ASSERT(_TAG_PRIMARY_MASK - TAG_PRIMARY_LIST == (1 << 1));
-            a.tst(ARG1, imm(1)),
-            a.b_ne(malformed_list),
+            a.tst(ARG1, imm(1));
+            a.b_ne(malformed_list);
 
             emit_ptr_val(ARG1, ARG1);
             a.ldr(TMP, getCARRef(ARG1));
