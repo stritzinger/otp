@@ -117,16 +117,17 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
 
             /* We bail at MAX_REG-1 rather than MAX_REG as the highest register
              * is reserved for the loader. */
+            mov_imm(TMP, MAX_REG - 1);
             a.add(ARG3, ARG3, imm(1));
-            a.cmp(ARG3, imm(MAX_REG - 1));
+            a.cmp(ARG3, TMP);
             a.b_lo(unpack_next);
         }
 
-        a.mov(ARG1, imm(SYSTEM_LIMIT));
+        mov_imm(ARG1, SYSTEM_LIMIT);
         a.b(raise_error);
 
         a.bind(malformed_list);
-        a.mov(ARG1, imm(BADARG));
+        mov_imm(ARG1, BADARG);
 
         a.bind(raise_error);
         {

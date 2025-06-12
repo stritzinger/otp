@@ -325,19 +325,28 @@ protected:
 
     template<typename T>
     void mov_imm(a32::Gp to, T value) {
-        // TODO
-        // implement this for emit_apply_fun_shared
         static_assert(std::is_integral<T>::value || std::is_pointer<T>::value);
-        if (value) {
-            ASSERT(false);
-            a.mov(to, imm(value));
+        uint32_t value32;
+        if constexpr (std::is_pointer<T>::value) {
+            value32 = reinterpret_cast<uintptr_t>(value);
         } else {
-            // arm64 uses the xzr register (ZERO) here and
-            // x86 uses some x86 specific instruction sequence
-            // to set the register to zero.
-            // We need to understand how one sets a register to zero in
-            // arm32
-            a.mov(to, 0);
+            value32 = static_cast<uint32_t>(value);
+        }
+        if (value32 == 0) {
+            a.eor(to, to, to);
+        } else if (value32 <= 255) {
+            a.mov(to, imm(value32));
+        } else if (value32 <= UINT16_MAX) {
+            a.movw(to, imm(value32));
+        } else if (value32 <= UINT32_MAX) {
+            // move the lower 16 bits
+            uint16_t lower16 = value32;
+            a.movw(to, imm(lower16));
+            // move the upper 16 bits
+            uint16_t upper16 = (value32 >> 16);
+            a.movt(to, imm(upper16));
+        } else {
+            ERTS_INTERNAL_ERROR("mov_imm: unhandled value");
         }
     }
 
