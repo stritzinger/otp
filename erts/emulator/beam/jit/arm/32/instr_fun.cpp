@@ -81,7 +81,6 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
 }
 
 void BeamGlobalAssembler::emit_apply_fun_shared() {
-    // TODO this is the first called emitter
     Label finished = a.newLabel();
 
     /* Put the arity and fun into the right registers for `call_fun`, and stash
