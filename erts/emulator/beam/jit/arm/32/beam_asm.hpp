@@ -328,7 +328,8 @@ protected:
         static_assert(std::is_integral<T>::value || std::is_pointer<T>::value);
         uint32_t value32;
         if constexpr (std::is_pointer<T>::value) {
-            value32 = reinterpret_cast<uintptr_t>(value);
+            auto uintptr = reinterpret_cast<uintptr_t>(value);
+            value32 = static_cast<uint32_t>(uintptr);
         } else {
             value32 = static_cast<uint32_t>(value);
         }
@@ -338,15 +339,13 @@ protected:
             a.mov(to, imm(value32));
         } else if (value32 <= UINT16_MAX) {
             a.movw(to, imm(value32));
-        } else if (value32 <= UINT32_MAX) {
+        } else {
             // move the lower 16 bits
             uint16_t lower16 = value32;
             a.movw(to, imm(lower16));
             // move the upper 16 bits
             uint16_t upper16 = (value32 >> 16);
             a.movt(to, imm(upper16));
-        } else {
-            ERTS_INTERNAL_ERROR("mov_imm: unhandled value");
         }
     }
 
