@@ -40,7 +40,7 @@ void BeamModuleAssembler::ubif_comment(const ArgWord &Bif) {
  * Result is returned in ARG1 (will be THE_NON_VALUE if the BIF call failed). */
 void BeamGlobalAssembler::emit_i_bif_guard_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_bif_guard_shared");
 }
 
 /* ARG2 = argument vector, ARG4 (!) = bif function pointer
@@ -48,7 +48,7 @@ void BeamGlobalAssembler::emit_i_bif_guard_shared() {
  * Result is returned in RET. */
 void BeamGlobalAssembler::emit_i_bif_body_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_bif_body_shared");
 }
 
 void BeamModuleAssembler::emit_i_bif1(const ArgSource &Src1,
@@ -117,7 +117,7 @@ void BeamModuleAssembler::emit_i_length_setup(const ArgLabel &Fail,
  * Result is returned in RET. */
 void BeamGlobalAssembler::emit_i_length_common(Label fail, int state_size) {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_length_common");
 }
 
 /* ARG2 = live registers, ARG3 = entry address
@@ -125,7 +125,7 @@ void BeamGlobalAssembler::emit_i_length_common(Label fail, int state_size) {
  * Result is returned in RET. */
 void BeamGlobalAssembler::emit_i_length_body_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_length_body_shared");
 }
 
 /* ARG2 = live registers, ARG3 = entry address
@@ -133,7 +133,7 @@ void BeamGlobalAssembler::emit_i_length_body_shared() {
  * Result is returned in ARG. Error is indicated by THE_NON_VALUE. */
 void BeamGlobalAssembler::emit_i_length_guard_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_length_guard_shared");
 }
 
 void BeamModuleAssembler::emit_i_length(const ArgLabel &Fail,
@@ -150,8 +150,23 @@ static Eterm debug_call_light_bif(Process *c_p,
                                   ErtsCodePtr I,
                                   ErtsBifFunc vbf) {
     Eterm result;
-    // TODO
-    ASSERT(false);
+
+    ERTS_ASSERT_TRACER_REFS(&c_p->common);
+    ERTS_UNREQ_PROC_MAIN_LOCK(c_p);
+    {
+        ERTS_CHK_MBUF_SZ(c_p);
+        ASSERT(!ERTS_PROC_IS_EXITING(c_p));
+        result = vbf(c_p, reg, I);
+        ASSERT(!ERTS_PROC_IS_EXITING(c_p) || is_non_value(result));
+        ERTS_CHK_MBUF_SZ(c_p);
+
+        ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
+        ERTS_HOLE_CHECK(c_p);
+    }
+    PROCESS_MAIN_CHK_LOCKS(c_p);
+    ERTS_REQ_PROC_MAIN_LOCK(c_p);
+    ERTS_ASSERT_TRACER_REFS(&c_p->common);
+
     return result;
 }
 #endif
@@ -160,19 +175,123 @@ static Eterm debug_call_light_bif(Process *c_p,
  * When doing any changes, make sure to look at the estone bif_dispatch
  * benchmark to make sure you don't introduce any regressions.
  *
+ * ARG2 = BIF pointer
  * ARG3 = entry
  * ARG4 = export entry
- * ARG8 = BIF pointer
  */
 void BeamGlobalAssembler::emit_call_light_bif_shared() {
-    // TODO
-    ASSERT(false);
+    arm::Mem entry_mem = TMP_MEM1q, export_mem = TMP_MEM2q,
+             mbuf_mem = TMP_MEM3q;
+
+    Label trace = a.newLabel(), yield = a.newLabel(), skip_trace = a.newLabel();
+
+    /* Spill everything we may need on the error and GC paths. */
+    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, mbuf)));
+    a.str(TMP, mbuf_mem);
+    //make TMP point to TMP_MEM1q, stmia does not support offsets
+    arm::Mem tmp_mem1q = arm::Mem(TMP);
+    a.mov(TMP, scheduler_registers);
+    a.add(TMP, TMP, offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[0]));
+    a.stmia(tmp_mem1q, a32::GpList({ARG3, ARG4}));
+
+    /* Check if we should trace this bif call or handle save_calls. Both
+     * variants dispatch through the export entry. */
+    a.ldr(TMP, arm::Mem(ARG4, offsetof(Export, is_bif_traced)));
+    a.tst(TMP, TMP);
+    a.b_ne(skip_trace);
+    a.cmp(active_code_ix, imm(ERTS_SAVE_CALLS_CODE_IX));
+    a.b_eq(trace);
+    a.bind(skip_trace);
+
+    a.subs(FCALLS, FCALLS, imm(1));
+    a.b_le(yield);
+    {
+        Label check_bif_return = a.newLabel(), gc_after_bif_call = a.newLabel();
+
+        emit_enter_runtime_frame();
+        emit_enter_runtime<Update::eReductions | Update::eStack | Update::eHeap>();
+
+#ifdef ERTS_MSACC_EXTENDED_STATES
+        //TODO
+        ASSERT(false);
+#endif
+
+        {
+            // ARG2 is the BIF pointer
+            a.mov(TMP, ARG2);
+
+            /* Call the BIF proper. ARG3 and ARG8 have been set earlier. */
+            a.mov(ARG1, c_p);
+            load_x_reg_array(ARG2);
+
+#if defined(DEBUG) || defined(ERTS_ENABLE_LOCK_CHECK)
+            a.mov(ARG4, TMP);
+            runtime_call<4>(debug_call_light_bif);
+#else
+            runtime_call(TMP, 3);
+#endif
+        }
+
+#ifdef ERTS_MSACC_EXTENDED_STATES
+        //TOOD
+        ASSERT(false);
+#endif
+
+        /* We must update the active code index in case another process has
+         * loaded new code, as the result of this BIF may be observable on both
+         * ends.
+         *
+         * It doesn't matter whether the BIF modifies anything; if process A
+         * loads new code and calls erlang:monotonic_time/0 soon after, we'd
+         * break the illusion of atomic upgrades if process B still ran old code
+         * after seeing a later timestamp from its own call to
+         * erlang:monotonic_time/0. */
+        emit_leave_runtime<Update::eReductions | Update::eCodeIndex |
+                           Update::eHeap | Update::eStack>();
+        emit_leave_runtime_frame();
+
+        /* ERTS_IS_GC_DESIRED_INTERNAL */
+        {
+            emit_nyi("emit_call_light_bif_ERTS_IS_GC_DESIRED_INTERNAL");
+        }
+
+        a.bind(check_bif_return);
+        {
+          emit_nyi("emit_call_light_bif_check_bif_return");
+        }
+
+        a.bind(gc_after_bif_call);
+        {
+          emit_nyi("emit_call_light_bif_gc_after_bif_call");
+        }
+    }
+
+    a.bind(trace);
+    {
+        emit_nyi("emit_call_light_bif_trace");
+    }
+
+    a.bind(yield);
+    {
+        emit_nyi("emit_call_light_bif_yield");
+    }
 }
 
 void BeamModuleAssembler::emit_call_light_bif(const ArgWord &Bif,
                                               const ArgExport &Exp) {
-    // TODO
-    emit_nyi("emit_call_light_bif");
+    Label entry = a.newLabel();
+    BeamFile_ImportEntry *e = &beam->imports.entries[Exp.get()];
+
+    a.bind(entry);
+
+    mov_arg(ARG4, Exp);
+    mov_arg(ARG2, Bif);
+    a.adr(ARG3, entry);
+
+    if (logger.file()) {
+        comment("BIF: %T:%T/%d", e->module, e->function, e->arity);
+    }
+    fragment_call(ga->get_call_light_bif_shared());
 }
 
 void BeamModuleAssembler::emit_send() {
@@ -186,8 +305,33 @@ void BeamModuleAssembler::emit_nif_start() {
 }
 
 void BeamGlobalAssembler::emit_bif_nif_epilogue(void) {
-    // TODO
-    ASSERT(false);
+//    Label check_trap = a.newLabel(), trap = a.newLabel(), error = a.newLabel();
+//
+//#ifdef ERTS_MSACC_EXTENDED_STATES
+//    // Skipping msacc profiling for now
+//    emit_nyi("emit_bif_nif_epilogue");
+//#endif
+//
+//    /* Another process may have loaded new code and somehow notified us through
+//     * this call, so we must update the active code index. */
+//    emit_leave_runtime<Update::eStack | Update::eHeap | Update::eXRegs |
+//                       Update::eReductions | Update::eCodeIndex>();
+//
+//    emit_branch_if_not_value(ARG1, check_trap);
+//
+//    comment("Do return and dispatch to it");
+//    a.str(ARG1, getXRef(0));
+//
+//    emit_leave_erlang_frame();
+//
+//    if (erts_alcu_enable_code_atags) {
+//        /* See emit_i_test_yield. */
+//        a.str(a32::lr, arm::Mem(c_p, offsetof(Process, i)));
+//    }
+//
+//    a.bx(a32::lr);
+
+    emit_nyi("emit_bif_nif_epilogue");
 }
 
 /* Used by call_bif, dispatch_bif, and export_trampoline.
@@ -201,12 +345,12 @@ void BeamGlobalAssembler::emit_bif_nif_epilogue(void) {
  * ARG4 = function to be called */
 void BeamGlobalAssembler::emit_call_bif_shared(void) {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_call_bif_shared");
 }
 
 void BeamGlobalAssembler::emit_dispatch_bif(void) {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_dispatch_bif");
 }
 
 /* This is only used for opcode compatibility with the interpreter, it's never
@@ -225,7 +369,7 @@ void BeamModuleAssembler::emit_call_bif_mfa(const ArgAtom &M,
 
 void BeamGlobalAssembler::emit_call_nif_early() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_call_nif_shared");
 }
 
 /* Used by call_nif, call_nif_early, and dispatch_nif.
@@ -237,17 +381,17 @@ void BeamGlobalAssembler::emit_call_nif_early() {
  * ARG3 = current I, just past the end of an ErtsCodeInfo. */
 void BeamGlobalAssembler::emit_call_nif_shared(void) {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_call_nif_shared");
 }
 
 void BeamGlobalAssembler::emit_dispatch_nif(void) {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_dispatch_nif");
 }
 
 void BeamGlobalAssembler::emit_call_nif_yield_helper() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_call_nif_yield_helper");
 }
 
 /* WARNING: This stub is memcpy'd, so all code herein must be explicitly

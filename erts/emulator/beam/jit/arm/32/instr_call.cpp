@@ -27,7 +27,7 @@ extern "C"
 
 void BeamGlobalAssembler::emit_dispatch_return() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_dispatch_return");
 }
 
 void BeamModuleAssembler::emit_dispatch_return() {
@@ -76,7 +76,7 @@ void BeamModuleAssembler::emit_i_call_only(const ArgLabel &CallTarget) {
  * be preserved since this runs between caller and callee. */
 void BeamGlobalAssembler::emit_dispatch_save_calls_export() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_dispatch_save_calls_export");
 }
 
 void BeamModuleAssembler::emit_i_call_ext(const ArgExport &Exp) {
@@ -106,10 +106,34 @@ void BeamModuleAssembler::emit_move_call_ext_last(const ArgYRegister &Src,
 static ErtsCodeMFA apply3_mfa = {am_erlang, am_apply, 3};
 
 arm::Mem BeamModuleAssembler::emit_variable_apply(bool includeI) {
-    // TODO
-    emit_nyi("emit_variable_apply");
-    arm::Mem m;
-    return m;
+    Label dispatch = a.newLabel(), entry = a.newLabel();
+
+    a.bind(entry);
+
+    emit_enter_runtime<Update::eReductions | Update::eHeapAlloc>();
+
+    a.mov(ARG1, c_p);
+    load_x_reg_array(ARG2);
+
+    if (includeI) {
+        a.adr(ARG3, entry);
+    } else {
+        mov_imm(ARG3, 0);
+    }
+
+    comment("apply()");
+    // Using the basic runtime_call instead of the BeamModuleAssembler version
+    // allows to skip veneer management
+    BeamAssembler::runtime_call<4>(apply);
+
+    emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
+
+    a.tst(ARG1, ARG1);
+    a.b_ne(dispatch);
+    emit_raise_exception(entry, &apply3_mfa);
+
+    a.bind(dispatch);
+    return emit_setup_dispatchable_call(ARG1);
 }
 
 void BeamModuleAssembler::emit_i_apply() {
@@ -123,8 +147,11 @@ void BeamModuleAssembler::emit_i_apply_last(const ArgWord &Deallocate) {
 }
 
 void BeamModuleAssembler::emit_i_apply_only() {
-    // TODO
-    emit_nyi("emit_i_apply_only");
+    arm::Mem target = emit_variable_apply(true);
+
+    emit_leave_erlang_frame();
+    branch(target);
+    mark_unreachable();
 }
 
 arm::Mem BeamModuleAssembler::emit_fixed_apply(const ArgWord &Arity,

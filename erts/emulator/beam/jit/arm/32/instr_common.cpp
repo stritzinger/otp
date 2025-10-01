@@ -71,8 +71,9 @@ using namespace asmjit;
 /* Helpers */
 
 void BeamModuleAssembler::emit_error(int reason) {
-    // TODO
-    emit_nyi("emit_error");
+    mov_imm(TMP, reason);
+    a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
+    emit_raise_exception();
 }
 
 void BeamModuleAssembler::emit_error(int reason, const ArgSource &Src) {
@@ -110,14 +111,19 @@ void BeamModuleAssembler::emit_i_validate(const ArgWord &Arity) {
 void BeamModuleAssembler::emit_allocate_heap(const ArgWord &NeedStack,
                                              const ArgWord &NeedHeap,
                                              const ArgWord &Live) {
+    ASSERT(NeedStack.get() <= MAX_REG);
+
     // TODO
-    emit_nyi("emit_allocate_heap");
+    //emit_gc_test(NeedStack, NeedHeap, Live);
+
+    if (NeedStack.get() > 0) {
+        sub(E, E, NeedStack.get() * sizeof(Eterm));
+    }
 }
 
 void BeamModuleAssembler::emit_allocate(const ArgWord &NeedStack,
                                         const ArgWord &Live) {
-    // TODO
-    emit_nyi("emit_allocate");
+    emit_allocate_heap(NeedStack, ArgWord(0), Live);
 }
 
 void BeamModuleAssembler::emit_deallocate(const ArgWord &Deallocate) {
@@ -231,8 +237,7 @@ void BeamModuleAssembler::emit_trim(const ArgWord &Words,
 
 void BeamModuleAssembler::emit_i_move(const ArgSource &Src,
                                       const ArgRegister &Dst) {
-    // TODO
-    emit_nyi("emit_i_move");
+    mov_arg(Dst, Src);
 }
 
 void BeamModuleAssembler::emit_move_two_trim(const ArgYRegister &Src1,
@@ -538,7 +543,7 @@ void BeamModuleAssembler::emit_i_test_arity(const ArgLabel &Fail,
  */
 void BeamGlobalAssembler::emit_is_eq_exact_list_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_is_eq_exact_list_shared");
 }
 
 /*
@@ -549,7 +554,7 @@ void BeamGlobalAssembler::emit_is_eq_exact_list_shared() {
  */
 void BeamGlobalAssembler::emit_is_eq_exact_shallow_boxed_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_is_eq_exact_shallow_boxed_shared");
 }
 
 void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
@@ -587,8 +592,22 @@ void BeamModuleAssembler::emit_is_ne(const ArgLabel &Fail,
  * Result is returned in the flags.
  */
 void BeamGlobalAssembler::emit_arith_compare_shared() {
-    // TODO
-    ASSERT(false);
+    // We directly call erts_cmp_compound here instead of
+    // trying to use faster alternatives.
+    emit_enter_runtime_frame();
+    emit_enter_runtime();
+
+    comment("erts_cmp_compound(X, Y, 0, 0);");
+    mov_imm(ARG3, 0);
+    mov_imm(ARG4, 0);
+    runtime_call<4>(erts_cmp_compound);
+
+    emit_leave_runtime();
+    emit_leave_runtime_frame();
+
+    a.tst(ARG1, ARG1);
+
+    a.bx(a32::lr);
 }
 
 void BeamModuleAssembler::emit_is_lt(const ArgLabel &Fail,
@@ -614,7 +633,7 @@ void BeamModuleAssembler::emit_is_ge(const ArgLabel &Fail,
  */
 void BeamGlobalAssembler::emit_is_in_range_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_is_in_range_shared");
 }
 
 /*
@@ -638,7 +657,7 @@ void BeamModuleAssembler::emit_is_in_range(ArgLabel const &Small,
  */
 void BeamGlobalAssembler::emit_is_ge_lt_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_is_ge_lt_shared");
 }
 
 /*
@@ -700,8 +719,8 @@ void BeamModuleAssembler::emit_is_int_ge(ArgLabel const &Fail,
 }
 
 void BeamModuleAssembler::emit_badmatch(const ArgSource &Src) {
-    // TODO
-    emit_nyi("emit_badmatch");
+    emit_error(BADMATCH, Src);
+    mark_unreachable();
 }
 
 void BeamModuleAssembler::emit_case_end(const ArgSource &Src) {
@@ -732,7 +751,7 @@ void BeamModuleAssembler::emit_catch(const ArgYRegister &Y,
 
 void BeamGlobalAssembler::emit_catch_end_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_catch_end_shared");
 }
 
 void BeamModuleAssembler::emit_catch_end(const ArgYRegister &CatchTag) {
@@ -770,7 +789,7 @@ void BeamModuleAssembler::emit_try_case_end(const ArgSource &Src) {
 
 void BeamGlobalAssembler::emit_raise_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_raise_shared");
 }
 
 void BeamModuleAssembler::emit_raise(const ArgSource &Trace,
@@ -797,13 +816,39 @@ void BeamModuleAssembler::emit_raw_raise() {
 
 /* ARG3 = current_label */
 void BeamGlobalAssembler::emit_i_test_yield_shared() {
-    // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_test_yield_shared");
+    a.sub(ARG2, ARG3, imm(sizeof(ErtsCodeMFA)));
+    a.add(ARG3, ARG3, imm(TEST_YIELD_RETURN_OFFSET));
+
+    a.str(ARG2, arm::Mem(c_p, offsetof(Process, current)));
+    a.ldr(ARG2, arm::Mem(ARG2, offsetof(ErtsCodeMFA, arity)));
+    a.strb(ARG2, arm::Mem(c_p, offsetof(Process, arity)));
+
+    a.b(labels[context_switch_simplified]);
 }
 
 void BeamModuleAssembler::emit_i_test_yield() {
-    // TODO
-    emit_nyi("emit_i_test_yield");
+    /* When present, this is guaranteed to be the first instruction after the
+     * breakpoint trampoline. */
+    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
+           BEAM_ASM_FUNC_PROLOGUE_SIZE);
+
+    a.adr(ARG3, current_label);
+
+    if (erts_alcu_enable_code_atags) {
+        /* The point-of-origin allocation tags are vastly improved when the
+         * instruction pointer is updated frequently. This has a relatively low
+         * impact on performance but there's little point in doing this unless
+         * the user has requested it -- it's an undocumented feature for
+         * now. */
+        a.str(ARG3, arm::Mem(c_p, offsetof(Process, i)));
+    }
+
+    a.subs(FCALLS, FCALLS, imm(1));
+    a.b_le(resolve_fragment(ga->get_i_test_yield_shared(), disp32MB));
+
+    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
+           TEST_YIELD_RETURN_OFFSET);
 }
 
 void BeamModuleAssembler::emit_i_yield() {

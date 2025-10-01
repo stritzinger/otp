@@ -51,21 +51,216 @@ void BeamGlobalAssembler::emit_process_main() {
           context_switch_simplified_local = a.newLabel(),
           do_schedule_local = a.newLabel(), schedule_next = a.newLabel();
 
-    const arm::Mem start_time_i =
-            getSchedulerRegRef(offsetof(ErtsSchedulerRegisters, start_time_i));
-    const arm::Mem start_time =
-            getSchedulerRegRef(offsetof(ErtsSchedulerRegisters, start_time));
+    /* Be kind to debuggers and `perf` by setting up a proper stack frame. */
+    emit_enter_runtime_frame();
 
-    // TODO
-    ASSERT(false);
+    /* The offset of start_time_i in ErtsSchedulerRegisters cannot stay
+     * in the 12 bit immediate accepted by the STR instruction.
+     *
+     * We use ARG4 to point to start_time_i so then we can use a relative offset
+     * to point to start_time.
+     */
+    const Uint start_t_i_offset = offsetof(ErtsSchedulerRegisters, start_time_i);
+    const Uint start_t_offset = offsetof(ErtsSchedulerRegisters, start_time);
+    // start_time precedes start_time_i in the struct
+    const Uint relative_start_t_offset = start_t_offset - start_t_i_offset;
+    a.mov(ARG4, scheduler_registers);
+    a.add(ARG4, ARG4, imm(start_t_i_offset));
+    const arm::Mem start_time_i = arm::Mem(ARG4);
+    const arm::Mem start_time = arm::Mem(ARG4, relative_start_t_offset);
 
+    /* Save the initial SP of the thread so that we can verify that it
+     * doesn't grow. */
+#ifdef JIT_HARD_DEBUG
+    int sp_offset = offsetof(ErtsSchedulerRegisters, initial_sp);
+    mov_imm(TMP, sp_offset);
+    a.add(TMP, scheduler_registers, TMP);
+    a.str(a32::sp, arm::Mem(TMP));
+#endif
+
+    // Scheduling loop initialization
+    mov_imm(TMP, 0);
+    a.str(TMP, start_time_i);
+    a.str(TMP, start_time);
+
+    mov_imm(c_p, 0);
+    mov_imm(FCALLS, 0);
+    mov_imm(ARG3, 0); /* Set reds_used for erts_schedule call */
+
+    // Start scheduling loop
+    a.b(schedule_next);
+
+    // We will jump here when a process is exiting to register
+    // how many reductions were used
     a.bind(do_schedule_local);
+    {
+        /* Figure out reds_used. def_arg_reg[5] = REDS_IN */
+        a.ldr(TMP, arm::Mem(c_p, offsetof(Process, def_arg_reg[5])));
+        a.sub(ARG3, TMP, FCALLS);
+        a.b(schedule_next);
+    }
+
     a.bind(context_switch_local);
     comment("Context switch, unknown arity/MFA");
+    //TODO
+    emit_nyi("context_switch_local");
     a.bind(context_switch_simplified_local);
     comment("Context switch, known arity and MFA");
+    {
+        Label not_exiting = a.newLabel();
+
+#ifdef DEBUG
+        Label check_i = a.newLabel();
+        /* Check that ARG3 is set to a valid CP. */
+        a.tst(ARG3, imm(_CPMASK));
+        a.b_eq(check_i);
+        a.udf(1);
+        a.bind(check_i);
+#endif
+
+        a.str(ARG3, arm::Mem(c_p, offsetof(Process, i)));
+        a.ldr(TMP, arm::Mem(c_p, offsetof(Process, state.value)));
+
+        a.tst(TMP, imm(ERTS_PSFLG_EXITING));
+        a.b_eq(not_exiting);
+        {
+            comment("Process exiting");
+
+            a.adr(TMP, labels[process_exit]);
+            a.str(TMP, arm::Mem(c_p, offsetof(Process, i)));
+            mov_imm(TMP, 0);
+            a.strb(TMP, arm::Mem(c_p, offsetof(Process, arity)));
+            a.str(TMP, arm::Mem(c_p, offsetof(Process, current)));
+            a.b(do_schedule_local);
+        }
+
+        a.bind(not_exiting);
+
+        /* Figure out reds_used. def_arg_reg[5] = REDS_IN */
+        a.ldr(TMP, arm::Mem(c_p, offsetof(Process, def_arg_reg[5])));
+        a.sub(FCALLS, TMP, FCALLS);
+
+        comment("Copy out X registers");
+        a.mov(ARG1, c_p);
+        load_x_reg_array(ARG2);
+        runtime_call<2>(copy_out_registers);
+
+        /* Restore reds_used from FCALLS */
+        a.mov(ARG3, FCALLS);
+
+        /* !! Fall through !! */
+    }
+
     a.bind(schedule_next);
     comment("schedule_next");
+
+    {
+        Label schedule = a.newLabel(), skip_long_schedule = a.newLabel();
+
+        /* ARG3 contains reds_used at this point */
+
+        //Jump to schedule if start_time is 0
+        a.ldr(TMP, start_time);
+        a.tst(TMP, TMP);
+        a.b_eq(schedule);
+        // Call check_monitor_long_schedule, a performance monitoring function
+        // that detects when Erlang processes run for too long without yielding.
+        {
+            a.mov(ARG1, c_p);
+            a.ldr(ARG2, start_time);
+
+            /* Spill reds_used in start_time slot */
+            a.str(ARG3, start_time);
+
+            a.ldr(ARG3, start_time_i);
+            runtime_call<3>(check_monitor_long_schedule);
+
+            /* Restore reds_used */
+            a.ldr(ARG3, start_time);
+        }
+
+        a.bind(schedule);
+        mov_imm(ARG1, 0);
+        a.mov(ARG2, c_p);
+#if defined(DEBUG) || defined(ERTS_ENABLE_LOCK_CHECK)
+        runtime_call<3>(erts_debug_schedule);
+#else
+        runtime_call<3>(erts_schedule);
+#endif
+        a.mov(c_p, ARG1);
+
+#ifdef ERTS_MSACC_EXTENDED_STATES
+        /* TODO */
+        emit_nyi("erts_msacc_cache check");
+#endif
+
+        mov_imm(TMP, 0);
+        a.str(TMP, start_time);
+        mov_imm(ARG1, &erts_system_monitor_long_schedule);
+        a.ldr(TMP, arm::Mem(ARG1));
+        a.tst(TMP, TMP);
+        a.b_eq(skip_long_schedule);
+
+        {
+            /* Enable long schedule test */
+            runtime_call<0>(erts_timestamp_millis);
+            a.str(ARG1, start_time);
+            a.ldr(TMP, arm::Mem(c_p, offsetof(Process, i)));
+            a.str(TMP, start_time_i);
+        }
+
+        a.bind(skip_long_schedule);
+        comment("skip_long_schedule");
+
+        /* Copy arguments */
+        a.mov(ARG1, c_p);
+        load_x_reg_array(ARG2);
+        runtime_call<2>(copy_in_registers);
+
+        /* Setup reduction counting */
+        a.ldr(FCALLS, arm::Mem(c_p, offsetof(Process, fcalls)));
+        a.str(FCALLS, arm::Mem(c_p, offsetof(Process, def_arg_reg[5])));
+
+#ifdef DEBUG
+        a.str(FCALLS, a32::Mem(c_p, offsetof(Process, debug_reds_in)));
+#endif
+
+        comment("check whether save calls is on");
+        a.mov(ARG1, c_p);
+        mov_imm(ARG2, ERTS_PSD_SAVED_CALLS_BUF);
+        runtime_call<2>(erts_psd_get);
+
+        /* Read the active code index, overriding it with
+         * ERTS_SAVE_CALLS_CODE_IX when save_calls is enabled (ARG1 != 0). */
+        mov_imm(TMP, &the_active_code_index);
+        a.ldr(TMP, arm::Mem(TMP));
+        a.tst(ARG1, ARG1);
+        a.mov_eq(active_code_ix, TMP);
+        a.mov_ne(active_code_ix, imm(ERTS_SAVE_CALLS_CODE_IX));
+
+        /* Start executing the Erlang process. Note that reductions have
+         * already been set up above. */
+         emit_leave_runtime<Update::eStack | Update::eHeap>();
+
+        /* Check if we are just returning from a dirty nif/bif call and if so we
+         * need to do a bit of cleaning up before continuing.
+         *
+         * This relies on `op_call_nif_WWW` / `op_call_bif_W` being encoded as
+         * UDF(opcode) followed by UDF(0), which we will never emit. */
+        a.ldr(ARG1, arm::Mem(c_p, offsetof(Process, i)));
+        a.ldr(TMP, arm::Mem(ARG1));
+
+        ERTS_CT_ASSERT((op_call_nif_WWW & 0xFFFF0000) == 0);
+        a.cmp(TMP, imm(op_call_nif_WWW));
+        a.b_eq(labels[dispatch_nif]);
+
+        ERTS_CT_ASSERT((op_call_bif_W & 0xFFFF0000) == 0);
+        a.cmp(TMP, imm(op_call_bif_W));
+        a.b_eq(labels[dispatch_bif]);
+
+        a.bx(ARG1);
+    }
+
     /* Processes may jump to the exported entry points below, executing on the
      * Erlang stack when entering. These are separate from the `_local` labels
      * above as we don't want to worry about which stack we're on when the
@@ -75,12 +270,10 @@ void BeamGlobalAssembler::emit_process_main() {
      *
      * The *next* instruction pointer is provided in ARG3, and must be preceded
      * by an ErtsCodeMFA.
-     *
-     * The X registers are expected to be in CPU registers.
      */
     a.bind(labels[context_switch]);
     {
-        emit_enter_runtime<Update::eStack | Update::eHeap | Update::eXRegs>();
+        emit_enter_runtime<Update::eStack | Update::eHeap>();
 
         a.b(context_switch_local);
     }
@@ -90,12 +283,10 @@ void BeamGlobalAssembler::emit_process_main() {
      * The next instruction pointer is provided in ARG3, which does not need to
      * point past an ErtsCodeMFA as the process structure has already been
      * updated.
-     *
-     * The X registers are expected to be in CPU registers.
      */
     a.bind(labels[context_switch_simplified]);
     {
-        emit_enter_runtime<Update::eStack | Update::eHeap | Update::eXRegs>();
+        emit_enter_runtime<Update::eStack | Update::eHeap>();
 
         a.b(context_switch_simplified_local);
     }
@@ -103,12 +294,10 @@ void BeamGlobalAssembler::emit_process_main() {
     /* `ga->get_do_schedule()`
      *
      * `c_p->i` must be set prior to jumping here.
-     *
-     * The X registers are expected to be in CPU registers.
      */
     a.bind(labels[do_schedule]);
     {
-        emit_enter_runtime<Update::eStack | Update::eHeap | Update::eXRegs>();
+        emit_enter_runtime<Update::eStack | Update::eHeap>();
 
         a.b(do_schedule_local);
     }

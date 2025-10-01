@@ -79,11 +79,10 @@ protected:
      * the aux_regs field to be addressed with an 8-bit displacement. */
     const a32::Gp scheduler_registers = a32::r4;
 
-    const a32::Gp E = a32::r7;
-
-    const a32::Gp c_p = a32::r8;
-    const a32::Gp FCALLS = a32::r9;
-    const a32::Gp HTOP = a32::r10;
+    const a32::Gp E = a32::r7; // Erlang Stack pointer
+    const a32::Gp c_p = a32::r8; // Current Process pointer
+    const a32::Gp FCALLS = a32::r9; // Function call counter (reductions)
+    const a32::Gp HTOP = a32::r10; // Erlang Heap pointer
 
     /* Local copy of the active code index.
      *
@@ -105,6 +104,17 @@ protected:
     const a32::Gp TMP = a32::r12;
 
     const a32::Gp VAR = a32::r6;
+
+    const arm::Mem TMP_MEM1q = getSchedulerRegRef(
+            offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[0]));
+    const arm::Mem TMP_MEM2q = getSchedulerRegRef(
+            offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[1]));
+    const arm::Mem TMP_MEM3q = getSchedulerRegRef(
+            offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[2]));
+    const arm::Mem TMP_MEM4q = getSchedulerRegRef(
+            offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[3]));
+    const arm::Mem TMP_MEM5q = getSchedulerRegRef(
+            offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[4]));
 
     constexpr arm::Mem getSchedulerRegRef(int offset) const {
         ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
@@ -142,12 +152,49 @@ protected:
         return arm::Mem(Src, -TAG_PRIMARY_LIST + sizeof(Eterm));
     }
 
+    /* Loads the X register array into `to`. Remember to sync the registers in
+     * `emit_enter_runtime`. */
+    void load_x_reg_array(a32::Gp to) {
+        int offset = offsetof(ErtsSchedulerRegisters, x_reg_array.d);
+
+        lea(to, getSchedulerRegRef(offset));
+    }
+
     void emit_assert_redzone_unused() {
-        ASSERT(false);
 #ifdef JIT_HARD_DEBUG
-    // TODO
-    ASSERT(false);
+        const int REDZONE_BYTES = S_REDZONE * sizeof(Eterm);
+        Label next = a.newLabel();
+
+        a.sub(TMP, E, imm(REDZONE_BYTES));
+        a.cmp(HTOP, TMP);
+
+        a.b_ls(next);
+        a.udf(0xbeef);
+
+        a.bind(next);
 #endif
+    }
+
+    void branch(arm::Mem target) {
+        a.ldr(TMP, target);
+        a.bx(TMP);
+    }
+
+    void runtime_call(a32::Gp func, unsigned args) {
+        ASSERT(false);
+    }
+
+    template<typename T>
+    struct function_arity;
+    template<typename T, typename... Args>
+    struct function_arity<T(Args...)>
+            : std::integral_constant<int, sizeof...(Args)> {};
+
+    template<int expected_arity, typename T>
+    void runtime_call(T(*func)) {
+        static_assert(expected_arity == function_arity<T>());
+        mov_imm(TMP, func);
+        a.blx(TMP);
     }
 
     constexpr arm::Mem getArgRef(const ArgRegister &arg) const {
@@ -167,17 +214,20 @@ protected:
      * assume that the respective entry is in ARG1, so we have to copy it over
      * if it isn't already. */
     arm::Mem emit_setup_dispatchable_call(const a32::Gp &Src) {
-        // TODO
-        ASSERT(false);
         return emit_setup_dispatchable_call(Src, active_code_ix);
     }
 
     arm::Mem emit_setup_dispatchable_call(const a32::Gp &Src,
                                           const a32::Gp &CodeIndex) {
-        // TODO
-        ASSERT(false);
-        arm::Mem m;
-        return m;
+        if (ARG1 != Src) {
+            a.mov(ARG1, Src);
+        }
+
+        ERTS_CT_ASSERT(offsetof(ErlFunEntry, dispatch) == 0);
+        ERTS_CT_ASSERT(offsetof(Export, dispatch) == 0);
+        ERTS_CT_ASSERT(offsetof(ErtsDispatchable, addresses) == 0);
+
+        return arm::Mem(ARG1, CodeIndex, arm::lsl(3));
     }
 
     /* Prefer `eHeapAlloc` over `eStack | eHeap` when calling
@@ -205,47 +255,81 @@ protected:
     };
 
     void emit_enter_erlang_frame() {
-        // TODO
-        ASSERT(false);
+        a.str(a32::lr, arm::Mem(E, -4).pre());
     }
 
     void emit_leave_erlang_frame() {
-        // TODO
-        ASSERT(false);
+        a.ldr(a32::lr, arm::Mem(E).post(4));
     }
 
     void emit_enter_runtime_frame() {
-        // TODO
-        ASSERT(false);
+        // We save the current frame pointer first
+        // and then the content of theLink Register on the stack
+        a.push(a32::GpList({a32::fp, a32::lr}));
+        // We also update the frame pointer
+        a.mov(a32::fp, a32::sp);
     }
 
     void emit_leave_runtime_frame() {
-        // TODO
-        ASSERT(false);
+        // Restore the frame pointer and the return address
+        // This also updates the stack pointer
+        a.pop(a32::GpList({a32::fp, a32::pc}));
     }
 
-    /* We keep the first six X registers in machine registers. Some of those
-     * registers are callee-saved and some are caller-saved.
-     *
-     * We ignore the ones above `live` to reduce the save/restore traffic on
-     * these registers. It's enough for this figure to be at least as high as
-     * the number of actually live registers, and we default to all six
-     * registers when we don't know the exact number.
-     *
-     * Furthermore, we only save the callee-save registers when told to sync
-     * all registers with the `Update::eXRegs` flag, as this is very rarely
-     * needed. */
-
+    /*
+     * We save the Erlang Stack, Erlang Heap and FCALLS registers in the
+     * C structure of the current process (c_p)
+    */
     template<int Spec = 0>
     void emit_enter_runtime() {
-        // TODO
-        ASSERT(false);
+        ERTS_CT_ASSERT((Spec & (Update::eReductions | Update::eStack |
+                                Update::eHeap | Update::eXRegs)) == Spec);
+        if (Spec & Update::eStack) {
+            a.str(E, arm::Mem(c_p, offsetof(Process, stop)));
+        } else {
+#ifdef DEBUG
+        /* Store some garbage in the process structure to catch missing
+         * updates. */
+        a.str(active_code_ix, arm::Mem(c_p, offsetof(Process, stop)));
+#endif
+        }
+        if (Spec & Update::eHeap) {
+            a.str(HTOP, arm::Mem(c_p, offsetof(Process, htop)));
+        } else {
+#ifdef DEBUG
+            a.str(active_code_ix, arm::Mem(c_p, offsetof(Process, htop)));
+#endif
+        }
+        if (Spec & Update::eReductions) {
+            a.str(FCALLS, arm::Mem(c_p, offsetof(Process, fcalls)));
+        }
+        // We do not have any X register cached in machine registers
+        // so nothing else needs to be saved.
     }
 
     template<int Spec = 0>
     void emit_leave_runtime() {
-        // TODO
-        ASSERT(false);
+        ERTS_CT_ASSERT(
+            (Spec & (Update::eReductions | Update::eStack | Update::eHeap |
+                     Update::eXRegs | Update::eCodeIndex)) == Spec);
+        if (Spec & Update::eStack) {
+            a.ldr(E, arm::Mem(c_p, offsetof(Process, stop)));
+        }
+        if (Spec & Update::eHeap) {
+            a.ldr(HTOP, arm::Mem(c_p, offsetof(Process, htop)));
+        }
+        if (Spec & Update::eReductions) {
+            a.ldr(FCALLS, arm::Mem(c_p, offsetof(Process, fcalls)));
+        }
+
+        if (Spec & Update::eCodeIndex) {
+            /* Updates the local copy of the active code index, retaining
+             * save_calls if active. */
+            mov_imm(TMP, &the_active_code_index);
+            a.ldr(TMP, arm::Mem(TMP));
+            a.cmp(active_code_ix, imm(ERTS_SAVE_CALLS_CODE_IX));
+            a.mov_ne(active_code_ix, TMP);
+        }
     }
 
     void emit_is_cons(Label Fail, a32::Gp Src) {
@@ -259,8 +343,17 @@ protected:
     }
 
     void emit_is_boxed(Label Fail, a32::Gp Src) {
-        // TODO
-        ASSERT(false);
+        const int bitNumber = 0;
+        ERTS_CT_ASSERT(_TAG_PRIMARY_MASK - TAG_PRIMARY_BOXED ==
+                       (1 << bitNumber));
+        // TST performs a AND operation, sets the Z flag to:
+        // if isZeroBit(result)
+        //     Z = 1
+        // else
+        //     Z = 0
+        a.tst(Src, imm(1 << bitNumber));
+        // Branch if Z == 0
+        a.b_ne(Fail);
     }
 
     void emit_is_not_boxed(Label Fail, a32::Gp Src) {
@@ -290,8 +383,7 @@ protected:
     }
 
     void emit_branch_if_not_value(a32::Gp reg, Label lbl) {
-        // TODO
-        ASSERT(false);
+        emit_branch_if_eq(reg, THE_NON_VALUE, lbl);
     }
 
     void emit_branch_if_value(a32::Gp reg, Label lbl) {
@@ -300,8 +392,13 @@ protected:
     }
 
     void emit_branch_if_eq(a32::Gp reg, Uint value, Label lbl) {
-        // TODO
-        ASSERT(false);
+        if (value <= 255) {
+            a.cmp(reg, imm(value));
+        } else {
+            mov_imm(TMP, value);
+            a.cmp(reg, TMP);
+        }
+        a.b_eq(lbl);
     }
 
     void emit_branch_if_ne(a32::Gp reg, Uint value, Label lbl) {
@@ -359,9 +456,26 @@ protected:
         ASSERT(false);
     }
 
-    void add(a32::Gp to, a32::Gp src, int64_t val) {
-        // TODO
-        ASSERT(false);
+    void add(a32::Gp to, a32::Gp src, int32_t val) {
+        if (val < 0) {
+            sub(to, src, -val);
+        } else if (val == 0 && to != src) {
+            a.mov(to, src);
+        } else if (val < (1 << 24)) {
+            if (val & 0xFFF) {                  // add the lower 12 bits
+                a.add(to, src, imm(val & 0xFFF));
+                src = to;
+            }
+
+            if (val & 0xFFF000) {               // add the upper 12 bits
+                a.add(to, src, imm(val & 0xFFF000));
+            }
+        } else {
+            a32::Gp tmp = follow_size(TMP, to);
+
+            mov_imm(tmp, val);
+            a.add(to, src, tmp);
+        }
     }
 
     void subs(a32::Gp to, a32::Gp src, int64_t val) {
@@ -395,9 +509,34 @@ protected:
      * arm::Mem class.
      */
     void lea(a32::Gp to, arm::Mem mem) {
-        // TODO
-        ASSERT(false);
+        int32_t offset = mem.offset();
+
+        ASSERT(mem.hasBaseReg() && !mem.hasIndex());
+        if (offset == 0) {
+            a.mov(to, a32::Gp(mem.baseId()));
+        } else {
+            add(to, a32::Gp(mem.baseId()), offset);
+        }
     }
+
+    /*
+     * FOR DEVELOPMENT ONLY
+     * NYI: Not Yet Implemented
+     * This fun was not present in the global assembler,
+     * but to speedup development we can use this to skip
+     * global funcitons implementation and focus on the module assembler.
+     */
+    static void i_emit_nyi(char *msg) {
+        erts_exit(ERTS_ERROR_EXIT, "NYI: %s\n", msg);
+    }
+
+    void emit_nyi(const char *msg) {
+        // skipping any preparation for the runtime call
+        mov_imm(ARG1, msg);
+        runtime_call<1>(i_emit_nyi);
+        /* Never returns */
+    }
+
 };
 
 #include "beam_asm_global.hpp"
@@ -448,20 +587,14 @@ class BeamModuleAssembler : public BeamAssembler,
          * backward displacements. */
         dispUnknown = (32 << 10) - sizeof(Uint32) - STUB_CHECK_INTERVAL,
 
-        /* +- 32KB: `tbz`, `tbnz`, `ldr` of 8-byte literal. */
-        disp32K = (32 << 10) - sizeof(Uint32),
-
-        /* +- 1MB: `adr`, `b.cond`, `cb.cond` */
-        disp1MB = (1 << 20) - sizeof(Uint32),
-
-        /* +- 128MB: `b`, `blr` */
-        disp128MB = (128 << 20) - sizeof(Uint32),
+        /* +- 32MB: `b`, `bl`, `blx`, b.cond */
+        disp32MB = (32 << 20) - sizeof(Uint32),
 
         dispMin = dispUnknown,
-        dispMax = disp128MB
+        dispMax = disp32MB
     };
 
-    static_assert(dispMin <= dispUnknown && dispMax >= disp128MB);
+    static_assert(dispMin <= dispUnknown && dispMax >= disp32MB);
     static_assert(STUB_CHECK_INTERVAL < dispMin / 2);
 
     struct Veneer {
@@ -536,20 +669,26 @@ class BeamModuleAssembler : public BeamAssembler,
             RegisterCache<16, arm::Mem, a32::Gp>(scheduler_registers, E, {});
 
     void reg_cache_put(arm::Mem mem, a32::Gp src) {
-        // TODO
-        ASSERT(false);
+        if (src != TMP) {
+            reg_cache.put(mem, src);
+        } else {
+            reg_cache.invalidate(mem);
+        }
     }
 
     a32::Gp find_cache(arm::Mem mem) {
-        // TODO
-        ASSERT(false);
         return reg_cache.find(a.offset(), mem);
     }
 
     /* Works as the STR instruction, but also updates the cache. */
     void str_cache(a32::Gp src, arm::Mem mem_dst) {
-        // TODO
-        ASSERT(false);
+        reg_cache.consolidate(a.offset());
+        reg_cache.invalidate(src);
+
+        a.str(src, mem_dst);
+
+        reg_cache_put(mem_dst, src);
+        reg_cache.update(a.offset());
     }
 
     /* Works as the STP instruction, but also updates the cache. */
@@ -560,14 +699,40 @@ class BeamModuleAssembler : public BeamAssembler,
 
     /* Works like LDR, but looks in the cache first. */
     void ldr_cached(a32::Gp dst, arm::Mem mem) {
-        // TODO
-        ASSERT(false);
+        a32::Gp cached_reg = find_cache(mem);
+
+        if (cached_reg.isValid()) {
+            /* This memory location is cached. */
+            if (cached_reg == dst) {
+                comment("skipped fetching of BEAM register");
+            } else {
+                comment("simplified fetching of BEAM register");
+                a.mov(dst, cached_reg);
+                reg_cache.invalidate(dst);
+                reg_cache.update(a.offset());
+            }
+        } else {
+            /* Not cached. Load and update cache. */
+            a.ldr(dst, mem);
+            reg_cache.invalidate(dst);
+            reg_cache_put(mem, dst);
+            reg_cache.update(a.offset());
+        }
     }
 
     template<typename L, typename... Any>
     void preserve_cache(L generate, Any... clobber) {
-        // TODO
-        ASSERT(false);
+        bool valid = reg_cache.validAt(a.offset());
+
+        generate();
+
+        if (valid) {
+            if (sizeof...(clobber) > 0) {
+                reg_cache.invalidate(clobber...);
+            }
+
+            reg_cache.update(a.offset());
+        }
     }
 
     void trim_preserve_cache(const ArgWord &Words) {
@@ -581,8 +746,11 @@ class BeamModuleAssembler : public BeamAssembler,
     }
 
     void mov_preserve_cache(a32::Gp dst, a32::Gp src) {
-        // TODO
-        ASSERT(false);
+        preserve_cache(
+            [&]() {
+                a.mov(dst, src);
+            },
+            dst);
     }
 
     void untag_ptr_preserve_cache(a32::Gp dst, a32::Gp src) {
@@ -667,27 +835,27 @@ protected:
 
     void emit_is_cons(Label Fail, a32::Gp Src) {
         // TODO
-        ASSERT(false);
+        emit_nyi("emit_is_cons");
     }
 
     void emit_is_not_cons(Label Fail, a32::Gp Src) {
         // TODO
-        ASSERT(false);
+        emit_nyi("emit_is_not_cons");
     }
 
     void emit_is_list(Label Fail, a32::Gp Src) {
         // TODO
-        ASSERT(false);
+        emit_nyi("emit_is_list");
     }
 
     void emit_is_boxed(Label Fail, a32::Gp Src) {
         // TODO
-        ASSERT(false);
+        emit_nyi("emit_is_boxed");
     }
 
     void emit_is_boxed(Label Fail, const ArgVal &Arg, a32::Gp Src) {
         // TODO
-        ASSERT(false);
+        emit_nyi("emit_is_boxed");
     }
 
     /* Copies `count` words from the address at `from`, to the address at `to`.
@@ -896,8 +1064,23 @@ protected:
      * that the return address forms a valid CP. */
     template<typename Any>
     void fragment_call(Any target) {
-        // TODO
-        ASSERT(false);
+        emit_assert_redzone_unused();
+
+#if defined(JIT_HARD_DEBUG)
+        /* Verify that the stack has not grown. */
+        Label next = a.newLabel();
+
+        int sp_offset = offsetof(ErtsSchedulerRegisters, initial_sp);
+        mov_imm(TMP, sp_offset);
+        a.add(TMP, scheduler_registers, TMP);
+        a.ldr(TMP, arm::Mem(TMP));
+        a.cmp(a32::sp, TMP);
+        a.b_eq(next);
+        a.udf(0xdead);
+        a.bind(next);
+#endif
+
+        a.bl(resolve_fragment((void (*)())target, disp32MB));
     }
 
     template<typename T>
@@ -910,7 +1093,7 @@ protected:
     void runtime_call(T(*func)) {
         static_assert(expected_arity == function_arity<T>());
 
-        a.bl(resolve_fragment((void (*)())func, disp128MB));
+        a.blx(resolve_fragment((void (*)())func, disp32MB));
     }
 
     bool isRegisterBacked(const ArgVal &arg) {
@@ -931,21 +1114,47 @@ protected:
     };
 
     Variable<a32::Gp> init_destination(const ArgVal &arg, a32::Gp tmp) {
-        // TODO
-        ASSERT(false);
-        return Variable(tmp);
+        return Variable(tmp, getArgRef(arg));
     }
 
     Variable<a32::VecD> init_destination(const ArgVal &arg, a32::VecD tmp) {
-        // TODO
-        ASSERT(false);
-        return Variable(tmp);
+        return Variable(tmp, getArgRef(arg));
     }
 
     Variable<a32::Gp> load_source(const ArgVal &arg, a32::Gp tmp) {
-        // TODO
-        ASSERT(false);
-        return Variable(tmp);
+        if (arg.isLiteral()) {
+            preserve_cache(
+                    [&]() {
+                        a.ldr(tmp, embed_constant(arg, disp32MB));
+                    },
+                    tmp);
+            return Variable(tmp);
+        } else if (arg.isRegister()) {
+            auto ref = getArgRef(arg);
+            ldr_cached(tmp, ref);
+            return Variable(tmp, ref);
+        } else {
+            if (arg.isImmed() || arg.isWord()) {
+                auto val = arg.isImmed() ? arg.as<ArgImmed>().get()
+                                         : arg.as<ArgWord>().get();
+
+                if (Support::isIntOrUInt32(val)) {
+                    preserve_cache(
+                            [&]() {
+                                mov_imm(tmp, val);
+                            },
+                            tmp);
+                    return Variable(tmp);
+                }
+            }
+
+            preserve_cache(
+                    [&]() {
+                        a.ldr(tmp, embed_constant(arg, disp32MB));
+                    },
+                    tmp);
+            return Variable(tmp);
+        }
     }
 
     /*
@@ -1010,30 +1219,35 @@ protected:
                         a32::Gp src2_default,
                         const ArgSource &Src3,
                         a32::Gp src3_default) {
-
+        //TODO
+        ASSERT(false);
     }
 
     template<typename Reg>
     void mov_var(const Variable<Reg> &to, const Variable<Reg> &from) {
-        // TODO
-        ASSERT(false);
+        mov_var(to.reg, from);
     }
 
     template<typename Reg>
     void mov_var(const Variable<Reg> &to, Reg from) {
-        // TODO
-        ASSERT(false);
+        if (to.reg != from) {
+            mov_preserve_cache(to.reg, from);
+        }
     }
 
     template<typename Reg>
     void mov_var(Reg to, const Variable<Reg> &from) {
-        // TODO
-        ASSERT(false);
+        if (to != from.reg) {
+            mov_preserve_cache(to, from.reg);
+        }
     }
 
     void flush_var(const Variable<a32::Gp> &to) {
-        // TODO
-        ASSERT(false);
+        if (to.mem.hasBase()) {
+            str_cache(to.reg, to.mem);
+        } else {
+            reg_cache.invalidate(to.reg);
+        }
     }
 
     void flush_var(const Variable<a32::VecD> &to) {
@@ -1064,8 +1278,10 @@ protected:
     }
 
     void mov_arg(const ArgRegister &To, const ArgVal &From) {
-        // TODO
-        ASSERT(false);
+        auto from = load_source(From, TMP);
+        auto to = init_destination(To, from.reg);
+        mov_var(to, from);
+        flush_var(to);
     }
 
     void mov_arg(const ArgRegister &To, arm::Mem From) {
@@ -1079,8 +1295,10 @@ protected:
     }
 
     void mov_arg(a32::Gp to, const ArgVal &from) {
-        // TODO
-        ASSERT(false);
+        auto r = load_source(from, to);
+        if (r.reg != to) {
+            mov_preserve_cache(to, r.reg);
+        }
     }
 
     void mov_arg(const ArgVal &to, a32::Gp from) {

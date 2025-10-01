@@ -100,12 +100,32 @@ void BeamModuleAssembler::emit_i_nif_padding() {
 
 void BeamGlobalAssembler::emit_i_breakpoint_trampoline_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_breakpoint_trampoline_shared");
 }
 
 void BeamModuleAssembler::emit_i_breakpoint_trampoline() {
-    // TODO
-    emit_nyi("emit_i_breakpoint_trampoline");
+    /* This little prologue is used by nif loading and tracing to insert
+     * alternative instructions. */
+    Label next = a.newLabel();
+
+    emit_enter_erlang_frame();
+    /* This branch is modified to jump to the BL instruction when the
+     * breakpoint is enabled. */
+    a.b(next);
+
+    if (code_header.isValid()) {
+        a.bl(resolve_fragment(ga->get_i_breakpoint_trampoline_shared(),
+                              disp32MB));
+    } else {
+        /* NIF or BIF stub; we're not going to use this trampoline as-is, but
+         * we need to reserve space for it. */
+        a.udf(0xB1F);
+    }
+
+    a.bind(next);
+
+    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
+            BEAM_ASM_FUNC_PROLOGUE_SIZE);
 }
 
 static void i_emit_nyi(char *msg) {
@@ -113,8 +133,10 @@ static void i_emit_nyi(char *msg) {
 }
 
 void BeamModuleAssembler::emit_nyi(const char *msg) {
-    // TODO
-    ASSERT(false);
+    // skipping any preparation for the runtime call
+    mov_imm(ARG1, msg);
+    runtime_call<1>(i_emit_nyi);
+    /* Never returns */
 }
 
 void BeamModuleAssembler::emit_nyi() {
@@ -156,15 +178,13 @@ bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
 
 void BeamGlobalAssembler::emit_i_func_info_shared() {
     // TODO
-    ASSERT(false);
+    emit_nyi("emit_i_func_info_shared");
 }
 
 void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
                                            const ArgAtom &Module,
                                            const ArgAtom &Function,
                                            const ArgWord &Arity) {
-    // TODO
-    emit_nyi("emit_i_func_info");
     ErtsCodeInfo info = {};
 
     /* `op_i_func_info_IaaI` is used in various places in the emulator, so this
@@ -190,22 +210,22 @@ void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
     if (code_header.isValid()) {
         /* We avoid using the `fragment_call` helper to ensure a constant
          * layout, as it adds code in certain debug configurations. */
-        a.bl(resolve_fragment(ga->get_i_func_info_shared(), disp128MB));
+        a.blx(resolve_fragment(ga->get_i_func_info_shared(), disp32MB));
     } else {
         a.udf(0xF1F0);
     }
-
     ERTS_CT_ASSERT(ERTS_ASM_BP_FLAG_NONE == 0);
-    a.embedUInt32(0);
-
+    /*
+      On Arm32 we do not need to add padding space here.
+      The metadata struct inside ErtsCodeInfo is 4 bytes long (UInt).
+      The BL instruction is already 4 bytes.
+    */
     ASSERT(a.offset() % sizeof(UWord) == 0);
     a.embed(&info.gen_bp, sizeof(info.gen_bp));
     a.embed(&info.mfa, sizeof(info.mfa));
 }
 
 void BeamModuleAssembler::emit_label(const ArgLabel &Label) {
-    // TODO
-    emit_nyi("emit_label");
     ASSERT(Label.isLabel());
 
     current_label = rawLabels[Label.get()];
@@ -216,8 +236,6 @@ void BeamModuleAssembler::emit_label(const ArgLabel &Label) {
 
 void BeamModuleAssembler::emit_aligned_label(const ArgLabel &Label,
                                              const ArgWord &Alignment) {
-    // TODO
-    emit_nyi("emit_aligned_label");
     a.align(AlignMode::kCode, Alignment.get());
     emit_label(Label);
 }
@@ -228,8 +246,6 @@ void BeamModuleAssembler::emit_on_load() {
 }
 
 void BeamModuleAssembler::bind_veneer_target(const Label &target) {
-    // TODO
-    emit_nyi("bind_veneer_target");
     auto veneer_range = _veneers.equal_range(target.id());
     for (auto it = veneer_range.first; it != veneer_range.second; it++) {
         const Veneer &veneer = it->second;
@@ -248,8 +264,6 @@ void BeamModuleAssembler::bind_veneer_target(const Label &target) {
 }
 
 void BeamModuleAssembler::emit_int_code_end() {
-    // TODO
-    emit_nyi("emit_int_code_end");
     /* This label is used to figure out the end of the last function */
     code_end = a.newLabel();
     a.bind(code_end);
@@ -268,8 +282,8 @@ void BeamModuleAssembler::emit_int_code_end() {
     for (auto pair : _dispatchTable) {
         bind_veneer_target(pair.second);
 
-        // a.mov(SUPER_TMP, imm(pair.first));
-        // a.br(SUPER_TMP);
+        mov_imm(TMP, pair.first);
+        a.blx(TMP);
     }
 
     mark_unreachable();
@@ -290,8 +304,9 @@ void BeamModuleAssembler::emit_line(const ArgWord &Loc) {
      *
      * Since line addresses are taken _after_ line instructions we can avoid
      * this by adding a nop when we detect this condition. */
-    // TODO
-    emit_nyi("emit_line");
+    if (a.offset() == last_error_offset) {
+        a.nop();
+    }
 }
 
 void BeamModuleAssembler::emit_func_line(const ArgWord &Loc) {
@@ -328,8 +343,6 @@ void BeamModuleAssembler::emit_call_error_handler() {
 const Label &BeamModuleAssembler::resolve_label(const Label &target,
                                                 enum Displacement disp,
                                                 const char *labelName) {
-    // TODO
-    emit_nyi("resolve_label");
     ssize_t currOffset = a.offset();
 
     ssize_t minOffset = currOffset - disp;
@@ -392,8 +405,6 @@ const Label &BeamModuleAssembler::resolve_label(const Label &target,
 
 const Label &BeamModuleAssembler::resolve_fragment(void (*fragment)(),
                                                    enum Displacement disp) {
-    // TODO
-    emit_nyi("resolve_fragment");
     auto it = _dispatchTable.find(fragment);
 
     if (it == _dispatchTable.end()) {
@@ -403,31 +414,83 @@ const Label &BeamModuleAssembler::resolve_fragment(void (*fragment)(),
     return resolve_label(it->second, disp);
 }
 
+arm::Mem BeamModuleAssembler::embed_constant(const ArgVal &value,
+                                             enum Displacement disp) {
+    ssize_t currOffset = a.offset();
+
+    ssize_t minOffset = currOffset - disp;
+    ssize_t maxOffset = currOffset + disp;
+
+    ASSERT(disp >= dispMin && disp <= dispMax);
+    ASSERT(!value.isRegister());
+
+    /* If a previously embedded constant is reachable from this point, we
+     * can use it instead of creating a new one. */
+    auto range = _constants.equal_range(value);
+    for (auto it = range.first; it != range.second; it++) {
+        const Constant &constant = it->second;
+
+        if (code.isLabelBound(constant.anchor)) {
+            ssize_t constOffset = code.labelOffsetFromBase(constant.anchor);
+
+            if (constOffset >= minOffset && constOffset <= maxOffset) {
+                return arm::Mem(constant.anchor);
+            }
+        } else if (constant.latestOffset <= maxOffset) {
+            return arm::Mem(constant.anchor);
+        }
+    }
+
+    auto it = _constants.emplace(value,
+                                 Constant{.latestOffset = maxOffset,
+                                          .anchor = a.newLabel(),
+                                          .value = value});
+    const Constant &constant = it->second;
+    _pending_constants.emplace(constant);
+
+    return arm::Mem(constant.anchor);
+}
+
 void BeamModuleAssembler::emit_i_flush_stubs() {
-        // TODO
-    emit_nyi("emit_i_flush_stubs");
+    /* Flush all stubs that are due within the next two check intervals
+     * to prevent them from being emitted inside function prologues or
+     * NIF padding. */
+   flush_pending_stubs(STUB_CHECK_INTERVAL * 2);
+   last_stub_check_offset = a.offset();
 }
 
 void BeamModuleAssembler::check_pending_stubs() {
-    // TODO
-    emit_nyi("check_pending_stubs");
     size_t currOffset = a.offset();
 
     /* We shouldn't let too much space pass between checks. */
-    ASSERT((last_stub_check_offset + dispMin) >= currOffset);
-
-    if ((last_stub_check_offset + STUB_CHECK_INTERVAL) < currOffset) {
+    if (last_stub_check_offset + STUB_CHECK_INTERVAL < currOffset ||
+        (is_unreachable() &&
+         last_stub_check_offset + STUB_CHECK_INTERVAL_UNREACHABLE <
+                 currOffset)) {
         last_stub_check_offset = currOffset;
 
         flush_pending_stubs(STUB_CHECK_INTERVAL * 2);
     }
+
+    if (is_unreachable()) {
+        flush_pending_labels();
+    }
 }
 
 void BeamModuleAssembler::flush_pending_stubs(size_t range) {
-    // TODO
-    emit_nyi("flush_pending_stubs");
     ssize_t effective_offset = a.offset() + range;
     Label next;
+
+    if (!_pending_labels.empty()) {
+        next = a.newLabel();
+
+        comment("Begin stub section");
+        if (!is_unreachable()) {
+            a.b(next);
+        }
+
+        flush_pending_labels();
+    }
 
     while (!_pending_veneers.empty()) {
         const Veneer &veneer = _pending_veneers.top();
@@ -441,7 +504,9 @@ void BeamModuleAssembler::flush_pending_stubs(size_t range) {
                 next = a.newLabel();
 
                 comment("Begin stub section");
-                a.b(next);
+                if (!is_unreachable()) {
+                    a.b(next);
+                }
             }
 
             emit_veneer(veneer);
@@ -466,7 +531,9 @@ void BeamModuleAssembler::flush_pending_stubs(size_t range) {
             next = a.newLabel();
 
             comment("Begin stub section");
-            a.b(next);
+            if (!is_unreachable()) {
+                a.b(next);
+            }
         }
 
         emit_constant(constant);
@@ -482,12 +549,75 @@ void BeamModuleAssembler::flush_pending_stubs(size_t range) {
     }
 }
 
+void BeamModuleAssembler::flush_pending_labels() {
+    if (!_pending_labels.empty()) {
+        a.align(AlignMode::kCode, 4);
+    }
+
+    while (!_pending_labels.empty()) {
+        const EmbeddedLabel &embedded_label = _pending_labels.top();
+
+        a.bind(embedded_label.anchor);
+        a.embedLabel(embedded_label.label, 8);
+
+        _pending_labels.pop();
+    }
+}
+
 void BeamModuleAssembler::emit_veneer(const Veneer &veneer) {
-        // TODO
+    // TODO
+    ASSERT(false);
     emit_nyi("emit_veneer");
 }
 
 void BeamModuleAssembler::emit_constant(const Constant &constant) {
-        // TODO
-    emit_nyi("emit_constant");
+    const Label &anchor = constant.anchor;
+    const ArgVal &value = constant.value;
+
+    ASSERT(!code.isLabelBound(anchor));
+    a.align(AlignMode::kData, 4);
+    a.bind(anchor);
+
+    ASSERT(!value.isRegister());
+
+    if (value.isImmed()) {
+        a.embedUInt32(value.as<ArgImmed>().get());
+    } else if (value.isWord()) {
+        a.embedUInt32(value.as<ArgWord>().get());
+    } else if (value.isLabel()) {
+        a.embedLabel(rawLabels.at(value.as<ArgLabel>().get()));
+    } else {
+        switch (value.getType()) {
+        case ArgVal::BytePtr:
+            strings.push_back({anchor, 0, value.as<ArgBytePtr>().get()});
+            a.embedUInt32(INT_MAX);
+            break;
+        case ArgVal::Catch: {
+            auto handler = rawLabels[value.as<ArgCatch>().get()];
+            catches.push_back({{anchor, 0, 0}, handler});
+            a.embedUInt64(INT_MAX);
+            break;
+        }
+        case ArgVal::Export: {
+            auto index = value.as<ArgExport>().get();
+            imports[index].patches.push_back({anchor, 0, 0});
+            a.embedUInt64(INT_MAX);
+            break;
+        }
+        case ArgVal::FunEntry: {
+            auto index = value.as<ArgLambda>().get();
+            lambdas[index].patches.push_back({anchor, 0, 0});
+            a.embedUInt64(INT_MAX);
+            break;
+        }
+        case ArgVal::Literal: {
+            auto index = value.as<ArgLiteral>().get();
+            literals[index].patches.push_back({anchor, 0, 0});
+            a.embedUInt64(INT_MAX);
+            break;
+        }
+        default:
+            ASSERT(!"error");
+        }
+    }
 }
