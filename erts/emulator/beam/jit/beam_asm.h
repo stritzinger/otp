@@ -191,6 +191,11 @@ static inline void erts_asm_bp_enable(ErtsCodePtr rw_p) {
 
     /* Reroute the initial jump instruction to `.enabled`. */
     rw_code[0] = 0x14000001;
+#    elif defined(__arm__)
+    Uint32 volatile *rw_code = (Uint32 *)rw_p;
+
+    ASSERT(rw_code[0] == 0xEA000000);
+    rw_code[0] = 0xEAFFFFFF;
 #    else /* x86_64 */
     byte volatile *rw_code = (byte *)rw_p;
 
@@ -212,6 +217,11 @@ static inline void erts_asm_bp_disable(ErtsCodePtr rw_p) {
 
     /* Reroute the initial jump instruction back to `.next`. */
     rw_code[0] = 0x14000002;
+#    elif defined(__arm__)
+    Uint32 volatile *rw_code = (Uint32 *)rw_p;
+
+    ASSERT(rw_code[0] == 0xEAFFFFFF);
+    rw_code[0] = 0xEA000000;
 #    else /* x86_64 */
     byte volatile *rw_code = (byte *)rw_p;
 
@@ -232,7 +242,7 @@ static inline void erts_asm_bp_set_flag(ErtsCodeInfo *ci_rw,
 
     if (ci_rw->u.metadata.breakpoint_flag == ERTS_ASM_BP_FLAG_NONE) {
         ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
-#    if defined(__aarch64__)
+#    if defined(__aarch64__) || defined(__arm__)
         rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
 #    endif
         erts_asm_bp_enable(rw_p);
@@ -253,7 +263,7 @@ static inline void erts_asm_bp_unset_flag(ErtsCodeInfo *ci_rw,
         /* We've removed the last flag, route the branch instruction back
          * past the prologue. */
         ErtsCodePtr rw_p = erts_codeinfo_to_code(ci_rw);
-#    if defined(__aarch64__)
+#    if defined(__aarch64__) || defined(__arm__)
         rw_p = (ErtsCodePtr)((Uint32 *)rw_p + 1);
 #    endif
         erts_asm_bp_disable(rw_p);
