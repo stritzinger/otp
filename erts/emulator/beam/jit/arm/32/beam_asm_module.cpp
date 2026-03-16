@@ -93,6 +93,62 @@ BeamModuleAssembler::BeamModuleAssembler(BeamGlobalAssembler *ga,
 #endif
 }
 
+void BeamModuleAssembler::embed_vararg_rodata(const Span<ArgVal> &args,
+                                              a32::Gp reg) {
+    /* Keep short sequences close for fast indexed loads and to avoid
+     * extra section switching. */
+    Label data = a.newLabel(), next = a.newLabel();
+
+    a.adr(reg, data);
+    a.b(next);
+
+    a.align(AlignMode::kData, 4);
+    a.bind(data);
+
+    for (const ArgVal &arg : args) {
+        union {
+            BeamInstr as_beam;
+            char as_char[1];
+        } data;
+
+        a.align(AlignMode::kData, 4);
+        switch (arg.getType()) {
+        case ArgVal::Literal: {
+            auto &patches = literals[arg.as<ArgLiteral>().get()].patches;
+            Label patch = a.newLabel();
+
+            a.bind(patch);
+            a.embedUInt64(INT_MAX);
+            patches.push_back({patch, 0, 0});
+            break;
+        }
+        case ArgVal::XReg:
+            data.as_beam = make_loader_x_reg(arg.as<ArgXRegister>().get());
+            a.embed(&data.as_char, sizeof(data.as_beam));
+            break;
+        case ArgVal::YReg:
+            data.as_beam = make_loader_y_reg(arg.as<ArgYRegister>().get());
+            a.embed(&data.as_char, sizeof(data.as_beam));
+            break;
+        case ArgVal::Label:
+            a.embedLabel(rawLabels[arg.as<ArgLabel>().get()], 4);
+            break;
+        case ArgVal::Immediate:
+            data.as_beam = arg.as<ArgImmed>().get();
+            a.embed(&data.as_char, sizeof(data.as_beam));
+            break;
+        case ArgVal::Word:
+            data.as_beam = arg.as<ArgWord>().get();
+            a.embed(&data.as_char, sizeof(data.as_beam));
+            break;
+        default:
+            ERTS_ASSERT(!"error");
+        }
+    }
+
+    a.bind(next);
+}
+
 void BeamModuleAssembler::emit_i_nif_padding() {
     // TODO
     emit_nyi("emit_i_nif_padding");
@@ -230,8 +286,18 @@ bool BeamModuleAssembler::emit(unsigned specific_op, const Span<ArgVal> &args) {
  */
 
 void BeamGlobalAssembler::emit_i_func_info_shared() {
-    // TODO
-    emit_nyi("emit_i_func_info_shared");
+    /* a32::lr now points 4 bytes into the ErtsCodeInfo struct for the
+     * function. Put the address of the MFA into ARG1. */
+    a.add(ARG1, a32::lr, offsetof(ErtsCodeInfo, mfa) - 4);
+
+    mov_imm(TMP, EXC_FUNCTION_CLAUSE);
+    a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
+    a.str(ARG1, arm::Mem(c_p, offsetof(Process, current)));
+
+    mov_imm(ARG2, 0);
+    mov_imm(ARG4, 0);
+
+    a.b(labels[raise_exception_shared]);
 }
 
 void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
@@ -263,16 +329,13 @@ void BeamModuleAssembler::emit_i_func_info(const ArgWord &Label,
     if (code_header.isValid()) {
         /* We avoid using the `fragment_call` helper to ensure a constant
          * layout, as it adds code in certain debug configurations. */
-        a.blx(resolve_fragment(ga->get_i_func_info_shared(), disp32MB));
+        a.bl(resolve_fragment(ga->get_i_func_info_shared(), disp32MB));
     } else {
         a.udf(0xF1F0);
     }
     ERTS_CT_ASSERT(ERTS_ASM_BP_FLAG_NONE == 0);
-    /*
-      On Arm32 we do not need to add padding space here.
-      The metadata struct inside ErtsCodeInfo is 4 bytes long (UInt).
-      The BL instruction is already 4 bytes.
-    */
+    /* Keep breakpoint_flag in a dedicated metadata word on ARM32. */
+    a.embedUInt32(0);
     ASSERT(a.offset() % sizeof(UWord) == 0);
     a.embed(&info.gen_bp, sizeof(info.gen_bp));
     a.embed(&info.mfa, sizeof(info.mfa));
@@ -632,9 +695,37 @@ void BeamModuleAssembler::flush_pending_labels() {
 }
 
 void BeamModuleAssembler::emit_veneer(const Veneer &veneer) {
-    // TODO
-    ASSERT(false);
-    emit_nyi("emit_veneer");
+    const Label &anchor = veneer.anchor;
+    const Label &target = veneer.target;
+    bool directBranch;
+
+    ASSERT(!code.isLabelBound(anchor));
+    a.bind(anchor);
+
+    /* Prefer direct branches when possible. */
+    if (code.isLabelBound(target)) {
+        auto targetOffset = code.labelOffsetFromBase(target);
+        directBranch = (a.offset() - targetOffset) <= disp32MB;
+    } else {
+        directBranch = false;
+    }
+
+#ifdef DEBUG
+    directBranch &= (a.offset() % 512) >= 256;
+#endif
+
+    if (ERTS_LIKELY(directBranch)) {
+        a.b(target);
+    } else {
+        Label pointer = a.newLabel();
+
+        a.ldr(TMP, arm::Mem(pointer));
+        a.bx(TMP);
+
+        a.align(AlignMode::kCode, 4);
+        a.bind(pointer);
+        a.embedLabel(veneer.target);
+    }
 }
 
 void BeamModuleAssembler::emit_constant(const Constant &constant) {

@@ -214,7 +214,8 @@ protected:
     }
     
     void runtime_call(a32::Gp func, unsigned args) {
-        ASSERT(false);
+        ASSERT(args < 5);
+        a.blx(func);
     }
 
     template<typename T>
@@ -365,14 +366,20 @@ protected:
         }
     }
 
-    void emit_is_cons(Label Fail, a32::Gp Src) {
-        // TODO
-        ASSERT(false);
+    void emit_is_cons(Label Fail, a32::Gp Src) {        
+        const int bitNumber = 1;
+        ERTS_CT_ASSERT(_TAG_PRIMARY_MASK - TAG_PRIMARY_LIST ==
+                       (1 << bitNumber));
+        a.tst(Src, imm(1 << bitNumber));
+        a.b_ne(Fail);
     }
 
-    void emit_is_not_cons(Label Fail, a32::Gp Src) {
-        // TODO
-        ASSERT(false);
+    void emit_is_not_cons(Label Fail, a32::Gp Src) {        
+        const int bitNumber = 1;
+        ERTS_CT_ASSERT(_TAG_PRIMARY_MASK - TAG_PRIMARY_LIST ==
+                       (1 << bitNumber));
+        a.tst(Src, imm(1 << bitNumber));
+        a.b_eq(Fail);
     }
 
     void emit_is_boxed(Label Fail, a32::Gp Src) {
@@ -390,8 +397,11 @@ protected:
     }
 
     void emit_is_not_boxed(Label Fail, a32::Gp Src) {
-        // TODO
-        ASSERT(false);
+        const int bitNumber = 0;
+        ERTS_CT_ASSERT(_TAG_PRIMARY_MASK - TAG_PRIMARY_BOXED ==
+                       (1 << bitNumber));
+        a.tst(Src, imm(1 << bitNumber));
+        a.b_eq(Fail);
     }
 
     a32::Gp emit_ptr_val(a32::Gp Dst, a32::Gp Src) {
@@ -406,8 +416,7 @@ protected:
     }
 
     void emit_untag_ptr(a32::Gp Dst, a32::Gp Src) {
-        // TODO
-        ASSERT(false);
+        a.bic(Dst, Src, imm(TAG_PTR_MASK__));
     }
 
     constexpr arm::Mem emit_boxed_val(a32::Gp Src, int32_t bytes = 0) const {
@@ -420,8 +429,7 @@ protected:
     }
 
     void emit_branch_if_value(a32::Gp reg, Label lbl) {
-        // TODO
-        ASSERT(false);
+        emit_branch_if_ne(reg, THE_NON_VALUE, lbl);
     }
 
     void emit_branch_if_eq(a32::Gp reg, Uint value, Label lbl) {
@@ -435,22 +443,31 @@ protected:
     }
 
     void emit_branch_if_ne(a32::Gp reg, Uint value, Label lbl) {
-        // TODO
-        ASSERT(false);
+        if (value <= 255) {
+            a.cmp(reg, imm(value));
+        } else {
+            mov_imm(TMP, value);
+            a.cmp(reg, TMP);
+        }
+        a.b_ne(lbl);
     }
 
     /* Set the Z flag if Reg1 and Reg2 are definitely not equal based
      * on their tags alone. (They may still be equal if both are
      * immediates and all other bits are equal too.) */
     void emit_is_unequal_based_on_tags(a32::Gp Reg1, a32::Gp Reg2) {
-        // TODO
-        ASSERT(false);
-    }
-
-    a32::Gp follow_size(const a32::Gp &reg, const a32::Gp &size) {
-        // TODO
-        ASSERT(false);
-        return reg;
+        ERTS_CT_ASSERT(TAG_PRIMARY_IMMED1 == _TAG_PRIMARY_MASK);
+        ERTS_CT_ASSERT((TAG_PRIMARY_LIST | TAG_PRIMARY_BOXED) ==
+                       TAG_PRIMARY_IMMED1);
+        a.orr(TMP, Reg1, Reg2);
+        a.and_(TMP, TMP, imm(_TAG_PRIMARY_MASK));
+        
+        /*
+         * SUPER_TMP will be now be TAG_PRIMARY_IMMED1 if either
+         * one or both registers are immediates, or if one register
+         * is a list and the other a boxed.
+         */
+        a.cmp(TMP, imm(TAG_PRIMARY_IMMED1));
     }
 
     template<typename T>
@@ -494,15 +511,12 @@ protected:
                 a.sub(to, src, imm(val & 0xFFF));
                 src = to;
             }
-
             if (val & 0xFFF000) {                // subtract the upper 12 bits
                 a.sub(to, src, imm(val & 0xFFF000));
             }
         } else {
-            a32::Gp tmp = follow_size(TMP, to);
-
-            mov_imm(tmp, val);
-            a.sub(to, src, tmp);
+            mov_imm(TMP, val);
+            a.sub(to, src, TMP);
         }
     }
 
@@ -516,24 +530,16 @@ protected:
                 a.add(to, src, imm(val & 0xFFF));
                 src = to;
             }
-
             if (val & 0xFFF000) {               // add the upper 12 bits
                 a.add(to, src, imm(val & 0xFFF000));
             }
         } else {
-            a32::Gp tmp = follow_size(TMP, to);
-
-            mov_imm(tmp, val);
-            a.add(to, src, tmp);
+            mov_imm(TMP, val);
+            a.add(to, src, TMP);
         }
     }
 
     void subs(a32::Gp to, a32::Gp src, int64_t val) {
-        // TODO
-        ASSERT(false);
-    }
-
-    void cmp(a32::Gp src, int64_t val) {
         // TODO
         ASSERT(false);
     }
@@ -636,6 +642,12 @@ class BeamModuleAssembler : public BeamAssembler,
          * Note that we subtract the size of one instruction to handle
          * backward displacements. */
         dispUnknown = (4 << 10) - sizeof(Uint32) - STUB_CHECK_INTERVAL,
+        
+        /* +- 1KB: vector operations: `vldr` `vstr` of 8-byte literal. 
+         * This is the maximum displacement for vector operations.
+         * Permitted values are multiples of 4 in the range 0 to 1020.
+         */
+        disp1KB = (1 << 10) - sizeof(Uint32),
         
         /* +- 4KB: `ldr` of 4-byte literal.
          * ARM LDR (literal) encodes offset from PC+8; valid range ±4095 bytes. 
@@ -747,10 +759,23 @@ class BeamModuleAssembler : public BeamAssembler,
         reg_cache.update(a.offset());
     }
 
-    /* Works as the STP instruction, but also updates the cache. */
-    void stp_cache(a32::Gp src1, a32::Gp src2, arm::Mem mem_dst) {
-        // TODO
-        ASSERT(false);
+    /* Works as the STMIA instruction, but also updates the cache. */
+    void stmia_cache(arm::Mem mem_dst, a32::Gp src1, a32::Gp src2) {
+        arm::Mem next_dst =
+                arm::Mem(a32::Gp(mem_dst.baseId()),
+                         mem_dst.offset() + sizeof(Eterm));
+
+        reg_cache.consolidate(a.offset());
+
+        reg_cache.invalidate(src1);
+        reg_cache.invalidate(src2);
+
+        safe_stmia(mem_dst, src1, src2);
+
+        reg_cache_put(mem_dst, src1);
+        reg_cache_put(next_dst, src2);
+
+        reg_cache.update(a.offset());
     }
 
     /* Works like LDR, but looks in the cache first. */
@@ -792,8 +817,15 @@ class BeamModuleAssembler : public BeamAssembler,
     }
 
     void trim_preserve_cache(const ArgWord &Words) {
-        // TODO
-        ASSERT(false);
+        if (Words.get() > 0) {
+            ASSERT(Words.get() <= 1023);
+
+            preserve_cache([&]() {
+                auto offset = Words.get() * sizeof(Eterm);
+                add(E, E, offset);
+                reg_cache.trim_yregs(-offset);
+            });
+        }
     }
 
     void mov_preserve_cache(a32::VecD dst, a32::VecD src) {
@@ -810,8 +842,11 @@ class BeamModuleAssembler : public BeamAssembler,
     }
 
     void untag_ptr_preserve_cache(a32::Gp dst, a32::Gp src) {
-        // TODO
-        ASSERT(false);
+        preserve_cache(
+            [&]() {
+                emit_untag_ptr(dst, src);
+            },
+            dst);
     }
 
     arm::Mem embed_label(const Label &label, enum Displacement disp);
@@ -890,28 +925,46 @@ protected:
                           bool skip_header_test = false);
 
     void emit_is_cons(Label Fail, a32::Gp Src) {
-        // TODO
-        emit_nyi("emit_is_cons");
+        preserve_cache([&]() {
+            BeamAssembler::emit_is_cons(Fail, Src);
+        });
     }
 
-    void emit_is_not_cons(Label Fail, a32::Gp Src) {
-        // TODO
-        emit_nyi("emit_is_not_cons");
+    void emit_is_not_cons(Label Fail, a32::Gp Src) {        
+        preserve_cache([&]() {
+            BeamAssembler::emit_is_not_cons(Fail, Src);
+        });
     }
 
     void emit_is_list(Label Fail, a32::Gp Src) {
-        // TODO
-        emit_nyi("emit_is_list");
+        preserve_cache([&]() {
+            Label next = a.newLabel();
+
+            a.tst(Src, imm(_TAG_PRIMARY_MASK - TAG_PRIMARY_LIST));
+            a.b_eq(next);
+
+            a.cmp(Src, imm(NIL));
+            a.b_ne(Fail);
+
+            a.bind(next);
+        });
     }
 
-    void emit_is_boxed(Label Fail, a32::Gp Src) {
-        // TODO
-        emit_nyi("emit_is_boxed");
+    void emit_is_boxed(Label Fail, a32::Gp Src) {        
+        preserve_cache([&]() {
+            BeamAssembler::emit_is_boxed(Fail, Src);
+        });
     }
 
     void emit_is_boxed(Label Fail, const ArgVal &Arg, a32::Gp Src) {
-        // TODO
-        emit_nyi("emit_is_boxed");
+        if (always_one_of<BeamTypeId::AlwaysBoxed>(Arg)) {
+            comment("skipped box test since argument is always boxed");
+            return;
+        }
+
+        preserve_cache([&]() {
+            BeamAssembler::emit_is_boxed(Fail, Src);
+        });
     }
 
     /* Copies `count` words from the address at `from`, to the address at `to`.
@@ -1152,12 +1205,6 @@ protected:
         a.bl(resolve_fragment((void (*)())func, disp32MB));
     }
 
-    bool isRegisterBacked(const ArgVal &arg) {
-        // TODO
-        ASSERT(false);
-        return false;
-    }
-
     template<typename RegType = a32::Gp>
     struct Variable {
         RegType reg;
@@ -1221,51 +1268,57 @@ protected:
      * the value will end up, the following code is UNSAFE:
      *
      *    auto src = load_source(Src);
-     *    a.tst(src.reg, ...);
-     *    a.mov(TMP2, NIL);
-     *    a.ccmp(src.reg, TMP2, ..., ...);
+     *    a.mov(TMP, imm(NIL));
+     *    a.cmp(src.reg, TMP);
      *
-     * If the value of Src happens to end up in TMP2, it will be
+     * If the value of Src happens to end up in TMP, it will be
      * overwritten before its second use.
      *
      * Basically, the only safe way to use this function is when the
      * register is used immediately and only once. For example:
      *
-     *    a.and_(TMP1, load_source(Src), imm(...));
-     *    a.cmp(TMP1, imm(...));
+     *    a.and_(TMP, load_source(Src), imm(...));
+     *    a.cmp(TMP, imm(...));
      */
     Variable<a32::Gp> load_source(const ArgVal &arg) {
-        a32::Gp todo;
-        // TODO
-        ASSERT(false);
-        return Variable(todo);
+        if (!arg.isRegister()) {
+            return load_source(arg, TMP);
+        } else {
+            a32::Gp cached_reg = find_cache(getArgRef(arg));
+
+            if (cached_reg.isValid()) {
+                return load_source(arg, cached_reg);
+            } else {
+                return load_source(arg, TMP);
+            }
+        }
     }
 
     auto load_sources(const ArgVal &Src1,
                       a32::Gp tmp1,
                       const ArgVal &Src2,
                       a32::Gp tmp2) {
-        if (!isRegisterBacked(Src1) && !isRegisterBacked(Src2)) {
-            switch (ArgVal::memory_relation(Src1, Src2)) {
-            case ArgVal::Relation::consecutive:
-                safe_ldp(tmp1, tmp2, Src1, Src2);
-                return std::make_pair(Variable(tmp1, getArgRef(Src1)),
-                                      Variable(tmp2, getArgRef(Src2)));
-            case ArgVal::Relation::reverse_consecutive:
-                safe_ldp(tmp2, tmp1, Src2, Src1);
-                return std::make_pair(Variable(tmp1, getArgRef(Src1)),
-                                      Variable(tmp2, getArgRef(Src2)));
-            case ArgVal::Relation::none:
-                break;
-            }
+        switch (ArgVal::memory_relation(Src1, Src2)) {
+        case ArgVal::Relation::consecutive:
+            safe_ldmia(tmp1, tmp2, Src1, Src2);
+            return std::make_pair(Variable(tmp1, getArgRef(Src1)),
+                                  Variable(tmp2, getArgRef(Src2)));
+        case ArgVal::Relation::reverse_consecutive:
+            break;     
+        case ArgVal::Relation::none:
+            break;
         }
-
         return std::make_pair(load_source(Src1, tmp1), load_source(Src2, tmp2));
     }
 
     Variable<a32::VecD> load_source(const ArgVal &arg, a32::VecD tmp) {
-        // TODO
-        ASSERT(false);
+        arm::Mem mem = getArgRef(arg);
+        if (mem.hasOffset()) {
+            a32::Gp base = a32::Gp(mem.baseId());
+            lea(TMP, mem);
+            mem = arm::Mem(TMP);
+        }
+        a.vldr_64(tmp, mem);
         return Variable<a32::VecD>(tmp);
     }
 
@@ -1307,30 +1360,53 @@ protected:
     }
 
     void flush_var(const Variable<a32::VecD> &to) {
-        // TODO
-        ASSERT(false);
+        if (to.mem.hasBase()) {
+            lea(TMP, to.mem);
+            a.vstr_64(to.reg, arm::Mem(TMP));
+        }
     }
 
     enum Relation { none, consecutive, reverse_consecutive };
 
     static Relation memory_relation(const arm::Mem &mem1,
                                     const arm::Mem &mem2) {
-        // TODO
-        ASSERT(false);
+        if (mem1.hasBaseReg() && mem2.hasBaseReg() &&
+            mem1.baseId() == mem2.baseId()) {
+            if (mem1.offset() + sizeof(Eterm) == mem2.offset()) {
+                return consecutive;
+            } else if (mem1.offset() == mem2.offset() + sizeof(Eterm)) {
+                return reverse_consecutive;
+            }
+        }
         return none;
     }
 
     void flush_vars(const Variable<a32::Gp> &to1,
                     const Variable<a32::Gp> &to2) {
-        // TODO
-        ASSERT(false);
+        const arm::Mem &mem1 = to1.mem;
+        const arm::Mem &mem2 = to2.mem;
+
+        if (memory_relation(to1.mem, to2.mem) == Relation::consecutive) {
+            stmia_cache(mem1, to1.reg, to2.reg);
+        } else {
+            flush_var(to1);
+            flush_var(to2);
+        }
     }
 
     void flush_vars(const Variable<a32::Gp> &to1,
                     const Variable<a32::Gp> &to2,
                     const Variable<a32::Gp> &to3) {
-        // TODO
-        ASSERT(false);
+        if (memory_relation(to1.mem, to2.mem) != Relation::none) {
+            flush_vars(to1, to2);
+            flush_var(to3);
+        } else if (memory_relation(to2.mem, to3.mem) != Relation::none) {
+            flush_vars(to2, to3);
+            flush_var(to1);
+        } else {
+            flush_vars(to1, to3);
+            flush_var(to2);
+        }
     }
 
     void mov_arg(const ArgRegister &To, const ArgVal &From) {
@@ -1341,8 +1417,9 @@ protected:
     }
 
     void mov_arg(const ArgRegister &To, arm::Mem From) {
-        // TODO
-        ASSERT(false);
+        auto to = init_destination(To, TMP);
+        a.ldr(to.reg, From);
+        flush_var(to);
     }
 
     void mov_arg(arm::Mem To, const ArgVal &From) {
@@ -1358,13 +1435,24 @@ protected:
     }
 
     void mov_arg(const ArgVal &to, a32::Gp from) {
-        // TODO
-        ASSERT(false);
+        auto r = init_destination(to, from);
+        if (r.reg != from) {
+            mov_preserve_cache(r.reg, from);
+        }
+        flush_var(r);
     }
 
     void cmp_arg(a32::Gp gp, const ArgVal &arg) {
-        // TODO
-        ASSERT(false);
+        if (arg.isImmed() || arg.isWord()) {
+            Sint val = arg.isImmed() ? arg.as<ArgImmed>().get()
+                                     : arg.as<ArgWord>().get();
+            mov_imm(TMP, val);
+            a.cmp(gp, TMP);
+            return;
+        }
+
+        auto tmp = load_source(arg, TMP);
+        a.cmp(gp, tmp.reg);
     }
 
     void safe_str(a32::Gp gp, arm::Mem mem) {
@@ -1372,7 +1460,7 @@ protected:
         ASSERT(false);
     }
 
-    void safe_stp(a32::Gp gp1,
+    void safe_stmia(a32::Gp gp1,
                   a32::Gp gp2,
 
                   const ArgVal &Dst1,
@@ -1381,14 +1469,37 @@ protected:
         ASSERT(false);
     }
 
-    void safe_stp(a32::Gp gp1, a32::Gp gp2, arm::Mem mem) {
-        // TODO
-        ASSERT(false);
+    void safe_stmia(arm::Mem mem, a32::Gp gp1, a32::Gp gp2) {
+        ASSERT(gp1.isGp() && gp2.isGp());
+        ASSERT(gp1 != gp2);
+        ASSERT(gp1.id() < gp2.id());
+        // We need the full memory address in a base register to use stmia
+        // a LEA(TMP) will work,
+        // but we need to make sure it's not used by the source registers
+        ASSERT(gp1.id() != TMP.id());
+        ASSERT(gp2.id() != TMP.id());
+        lea(TMP, mem);
+        a.stmia(arm::Mem(TMP), a32::GpList({gp1, gp2}));
     }
 
+    // This will use the TMP register if the offset is too large
     void safe_ldr(a32::Gp gp, arm::Mem mem) {
-        // TODO
-        ASSERT(false);
+        size_t abs_offset = std::abs(mem.offset());
+        auto offset = mem.offset();
+
+        ASSERT(mem.hasBaseReg() && !mem.hasIndex());
+        ASSERT(gp.isGp());
+
+        if (abs_offset <= disp4KB) {
+            preserve_cache(
+                    [&]() {
+                        a.ldr(gp, mem);
+                    },
+                    gp);
+        } else {
+            add(TMP, a32::Gp(mem.baseId()), offset);
+            a.ldr(gp, arm::Mem(TMP));
+        }
     }
 
     void safe_ldur(a32::Gp gp, arm::Mem mem) {
@@ -1397,30 +1508,68 @@ protected:
         ASSERT(false);
     }
 
-    void safe_ldp(a32::Gp gp1,
+    void safe_ldmia(a32::Gp gp1,
                   a32::Gp gp2,
                   const ArgVal &Src1,
                   const ArgVal &Src2) {
-        // TODO
-        ASSERT(false);
+        ASSERT(ArgVal::memory_relation(Src1, Src2) ==
+               ArgVal::Relation::consecutive);
+
+        safe_ldmia(getArgRef(Src1), gp1, gp2);
     }
 
-    void safe_ldp(a32::Gp gp1, a32::Gp gp2, arm::Mem mem) {
-        // TODO
-        ASSERT(false);
+    void safe_ldmia(arm::Mem mem, a32::Gp gp1, a32::Gp gp2) {
+        ASSERT(gp1.isGp() && gp2.isGp());
+        // ldmia requires different registers
+        ASSERT(gp1 != gp2);
+        // ldmia always writes to the registers in ascending order 
+        // so we need to ensure that gp1.id() < gp2.id()
+        ASSERT(gp1.id() < gp2.id());
+        
+        lea(TMP, mem);
+        preserve_cache(
+                [&]() {
+                    a.ldmia(arm::Mem(TMP), a32::GpList({gp1, gp2}));
+                },
+                gp1,
+                gp2);
     }
 
     /* Set the Z flag if Reg1 and Reg2 are definitely not equal based
      * on their tags alone. (They may still be equal if both are
      * immediates and all other bits are equal too.) */
     void emit_is_unequal_based_on_tags(Label Unequal,
-                                       const ArgVal &Src1,
+                                       const ArgSource &Src1,
                                        a32::Gp Reg1,
-                                       const ArgVal &Src2,
+                                       const ArgSource &Src2,
                                        a32::Gp Reg2) {
-        // TODO
-        ASSERT(false);
+        ERTS_CT_ASSERT(TAG_PRIMARY_IMMED1 == _TAG_PRIMARY_MASK);
+        ERTS_CT_ASSERT((TAG_PRIMARY_LIST | TAG_PRIMARY_BOXED) ==
+                       TAG_PRIMARY_IMMED1);
 
+        if (always_one_of<BeamTypeId::AlwaysBoxed>(Src1)) {
+            emit_is_boxed(Unequal, Reg2);
+        } else if (always_one_of<BeamTypeId::AlwaysBoxed>(Src2)) {
+            emit_is_boxed(Unequal, Reg1);
+        } else if (exact_type<BeamTypeId::Cons>(Src1)) {
+            emit_is_cons(Unequal, Reg2);
+        } else if (exact_type<BeamTypeId::Cons>(Src2)) {
+            emit_is_cons(Unequal, Reg1);
+        } else {
+            a.orr(TMP, Reg1, Reg2);
+
+            if (never_one_of<BeamTypeId::Cons>(Src1) ||
+                never_one_of<BeamTypeId::Cons>(Src2)) {
+                emit_is_boxed(Unequal, TMP);
+            } else if (never_one_of<BeamTypeId::AlwaysBoxed>(Src1) ||
+                       never_one_of<BeamTypeId::AlwaysBoxed>(Src2)) {
+                emit_is_cons(Unequal, TMP);
+            } else {
+                a.and_(TMP, TMP, imm(_TAG_PRIMARY_MASK));
+                a.cmp(TMP, imm(TAG_PRIMARY_IMMED1));
+                a.b_eq(Unequal);
+            }
+        }
     }
 
     /* Set the Z flag if Reg1 and Reg2 are both immediates. */
