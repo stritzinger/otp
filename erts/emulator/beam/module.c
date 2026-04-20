@@ -86,6 +86,7 @@ void erts_module_instance_init(struct erl_module_instance* modi)
 static Module* module_alloc(Module* tmpl)
 {
     Module* obj = (Module*) erts_alloc(ERTS_ALC_T_MODULE, sizeof(Module));
+    erts_alloc_trace_note_alloc("module_table.module", obj, sizeof(Module));
     erts_atomic_add_nob(&tot_module_bytes, sizeof(Module));
 
     obj->module = tmpl->module;
@@ -119,6 +120,9 @@ void init_module_table(void)
     for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
 	erts_index_init(ERTS_ALC_T_MODULE_TABLE, &module_tables[i], "module_code",
 			MODULE_SIZE, MODULE_LIMIT, f);
+        erts_alloc_trace_note_alloc("module_table.index_root",
+                                    &module_tables[i],
+                                    sizeof(module_tables[i]));
     }
 
     for (i=0; i<ERTS_NUM_CODE_IX; i++) {

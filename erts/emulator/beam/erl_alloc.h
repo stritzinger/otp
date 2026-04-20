@@ -230,6 +230,14 @@ int erts_get_thr_alloc_ix(void);
 #endif /* #if !ERTS_ALC_DO_INLINE */
 
 void *erts_alloc_permanent_cache_aligned(ErtsAlcType_t type, Uint size) ERTS_ATTR_MALLOC_US(2);
+void erts_alloc_trace_erts_alloc_call(ErtsAlcType_t type, Uint size, void *res);
+void erts_alloc_trace_note_alloc(const char *tag, void *ptr, UWord size);
+void erts_alloc_trace_carrier_create(const char *alloc_name,
+                                     int alloc_ix,
+                                     UWord carrier_size,
+                                     int is_mseg,
+                                     int is_sbc,
+                                     void *carrier_ptr);
 
 #ifndef ERTS_CACHE_LINE_SIZE
 /* Assumed cache line size */
@@ -250,6 +258,7 @@ void *erts_alloc(ErtsAlcType_t type, Uint size)
             size);
     if (!res)
 	erts_alloc_n_enomem(ERTS_ALC_T2N(type), size);
+    erts_alloc_trace_erts_alloc_call(type, size, res);
     ERTS_MSACC_POP_STATE_X();
     return res;
 }

@@ -474,6 +474,9 @@ init_atom_table(void)
 
     erts_index_init(ERTS_ALC_T_ATOM_TABLE, &erts_atom_table,
 		    "atom_tab", ATOM_SIZE, erts_atom_table_size, f);
+    erts_alloc_trace_note_alloc("atom_table.index_root",
+                                &erts_atom_table,
+                                sizeof(erts_atom_table));
 
     /* Ordinary atoms. a is a template for creating an entry in the atom table */
     for (i = 0; erl_atom_names[i] != 0; i++) {

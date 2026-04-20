@@ -69,6 +69,10 @@ int beam_load_prepare_emit(LoaderState *stp) {
     hdr = erts_alloc(ERTS_ALC_T_CODE,
                      (offsetof(BeamCodeHeader,functions)
                       + sizeof(BeamInstr) * stp->codev_size));
+    erts_alloc_trace_note_alloc("module_code.header.initial",
+                                hdr,
+                                offsetof(BeamCodeHeader, functions)
+                                + sizeof(BeamInstr) * stp->codev_size);
 
     hdr->num_functions = stp->beam.code.function_count;
     hdr->attr_ptr = NULL;
@@ -277,6 +281,7 @@ int beam_load_finish_emit(LoaderState *stp) {
 
     /* Move the code to its final location. */
     code_hdr = (BeamCodeHeader*)erts_realloc(ERTS_ALC_T_CODE, (void *) code_hdr, size);
+    erts_alloc_trace_note_alloc("module_code.header.final", code_hdr, size);
     codev = (BeamInstr*)&code_hdr->functions;
     stp->code_hdr = code_hdr;
     stp->codev = codev;
@@ -321,6 +326,9 @@ int beam_load_finish_emit(LoaderState *stp) {
 
         lit_asize = ERTS_LITERAL_AREA_ALLOC_SIZE(tot_lit_size);
         literal_area = erts_alloc(ERTS_ALC_T_LITERAL, lit_asize);
+        erts_alloc_trace_note_alloc("module_code.literal_area",
+                                    literal_area,
+                                    lit_asize);
         ptr = &literal_area->start[0];
         literal_area->end = ptr + tot_lit_size;
 
@@ -612,6 +620,9 @@ void beam_load_finalize_code(LoaderState* stp, struct erl_module_instance* inst_
         export = erts_export_put(import->module,
                                  import->function,
                                  import->arity);
+        erts_alloc_trace_note_alloc("module_code.import_export_entry",
+                                    (void *) export,
+                                    sizeof(*export));
 
         current = stp->import_patches[i];
         while (current != 0) {
@@ -647,6 +658,9 @@ void beam_load_finalize_code(LoaderState* stp, struct erl_module_instance* inst_
                                            stp->beam.checksum,
                                            lambda->index,
                                            lambda->arity - lambda->num_free);
+            erts_alloc_trace_note_alloc("module_code.fun_entry",
+                                        fun_entry,
+                                        sizeof(*fun_entry));
             fun_entries[i] = fun_entry;
 
             /* If there are no free variables, the loader has created a literal
@@ -700,6 +714,9 @@ void beam_load_finalize_code(LoaderState* stp, struct erl_module_instance* inst_
         ep = erts_export_put(stp->module,
                              entry->function,
                              entry->arity);
+        erts_alloc_trace_note_alloc("module_code.export_entry",
+                                    ep,
+                                    sizeof(*ep));
 
         /* Fill in BIF stubs with a proper call to said BIF. */
         if (ep->bif_number != -1) {

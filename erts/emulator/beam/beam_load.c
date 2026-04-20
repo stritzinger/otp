@@ -303,6 +303,9 @@ erts_finish_loading(Binary* magic, Process* c_p,
     } else {
         mod_tab_p->on_load = erts_alloc(ERTS_ALC_T_PREPARED_CODE,
                                         sizeof(struct erl_module_instance));
+        erts_alloc_trace_note_alloc("module_table.on_load_instance",
+                                    mod_tab_p->on_load,
+                                    sizeof(struct erl_module_instance));
         inst_p = mod_tab_p->on_load;
         erts_module_instance_init(inst_p);
     }

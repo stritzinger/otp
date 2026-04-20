@@ -29,6 +29,8 @@
 #include "atom.h"
 #include "erl_mmap.h"
 #include <stddef.h>
+#include <sys/stat.h>
+#include <limits.h>
 
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
@@ -347,6 +349,14 @@ typedef struct {
     Uint nseg;
 }ErtsFreeSegMap;
 
+typedef struct ErtsMMapFileMap_ ErtsMMapFileMap;
+struct ErtsMMapFileMap_ {
+    char *start;
+    UWord size;
+    char *path;
+    ErtsMMapFileMap *next;
+};
+
 struct ErtsMemMapper_ {
     int (*reserve_physical)(char *, UWord);
     void (*unreserve_physical)(char *, UWord);
@@ -371,6 +381,7 @@ struct ErtsMemMapper_ {
 #if HAVE_MMAP && (!defined(MAP_ANON) && !defined(MAP_ANONYMOUS))
     int mmap_fd;
 #endif
+    ErtsMMapFileMap *file_maps;
     erts_mtx_t mtx;
     struct {
 	char *free_list;
@@ -1289,29 +1300,45 @@ Eterm build_free_seg_list(Process* p, ErtsFreeSegMap* map)
 #if HAVE_MMAP
 #  define ERTS_MMAP_PROT		(PROT_READ|PROT_WRITE)
 #  if defined(MAP_ANONYMOUS)
-#    define ERTS_MMAP_FLAGS		(MAP_ANON|MAP_PRIVATE)
-#    define ERTS_MMAP_FD		(-1)
+#    define ERTS_MMAP_FLAGS		(MAP_ANONYMOUS|MAP_PRIVATE)
+#    define ERTS_MMAP_FD_FOR_MM(MM)	(-1)
 #  elif defined(MAP_ANON)
 #    define ERTS_MMAP_FLAGS		(MAP_ANON|MAP_PRIVATE)
-#    define ERTS_MMAP_FD		(-1)
+#    define ERTS_MMAP_FD_FOR_MM(MM)	(-1)
 #  else
 #    define ERTS_MMAP_FLAGS		(MAP_PRIVATE)
-#    define ERTS_MMAP_FD		mm->mmap_fd
+#    define ERTS_MMAP_FD_FOR_MM(MM)	((MM)->mmap_fd)
 #  endif
 #endif
 
-static ERTS_INLINE void *
-os_mmap(void *hint_ptr, UWord size)
+static ERTS_INLINE int
+erts_mmap_ensure_records_dir(void)
 {
 #if HAVE_MMAP
-    void *res;
+    static int dir_initialized = 0;
+    if (!dir_initialized) {
+        if (mkdir("_mmap-records", 0777) != 0 && errno != EEXIST) {
+            return 0;
+        }
+        dir_initialized = 1;
+    }
+    return 1;
+#else
+    return 0;
+#endif
+}
 
-    res = mmap((void *) hint_ptr, size, ERTS_MMAP_PROT,
-	       ERTS_MMAP_FLAGS, ERTS_MMAP_FD, 0);
-    if (res == MAP_FAILED)
-	return NULL;
-    return res;
+static ERTS_INLINE void *
+os_mmap_raw(ErtsMemMapper *mm, void *hint_ptr, UWord size, int fd, int flags)
+{
+#if HAVE_MMAP
+    void *res = mmap((void *) hint_ptr, size, ERTS_MMAP_PROT, flags, fd, 0);
+    return res == MAP_FAILED ? NULL : res;
 #elif HAVE_VIRTUALALLOC
+    (void) mm;
+    (void) hint_ptr;
+    (void) fd;
+    (void) flags;
     return (void *) VirtualAlloc(NULL, (SIZE_T) size,
 				 MEM_COMMIT|MEM_RESERVE, PAGE_READWRITE);
 #else
@@ -1320,7 +1347,7 @@ os_mmap(void *hint_ptr, UWord size)
 }
 
 static ERTS_INLINE void
-os_munmap(void *ptr, UWord size)
+os_munmap_raw(void *ptr, UWord size)
 {
 #if HAVE_MMAP
 #ifdef ERTS_MMAP_DEBUG
@@ -1339,8 +1366,293 @@ os_munmap(void *ptr, UWord size)
 #endif
 }
 
+static ERTS_INLINE void
+erts_mmap_file_record_add(ErtsMemMapper *mm, void *ptr, UWord size, char *path)
+{
+#if HAVE_MMAP
+    ErtsMMapFileMap *rec = (ErtsMMapFileMap *) malloc(sizeof(*rec));
+    if (!rec) {
+        unlink(path);
+        free(path);
+        erts_exit(ERTS_ABORT_EXIT, "erts_mmap: failed to allocate file mapping record\n");
+    }
+    rec->start = (char *) ptr;
+    rec->size = size;
+    rec->path = path;
+    rec->next = mm->file_maps;
+    mm->file_maps = rec;
+#else
+    (void) mm;
+    (void) ptr;
+    (void) size;
+    (void) path;
+#endif
+}
+
+static ERTS_INLINE void
+erts_mmap_file_record_remove_exact(ErtsMemMapper *mm, void *ptr, UWord size)
+{
+#if HAVE_MMAP
+    ErtsMMapFileMap **pp, *p;
+    pp = &mm->file_maps;
+    p = *pp;
+    while (p) {
+        if (p->start == (char *) ptr && p->size == size) {
+            *pp = p->next;
+            unlink(p->path);
+            free(p->path);
+            free(p);
+            return;
+        }
+        pp = &p->next;
+        p = p->next;
+    }
+#else
+    (void) mm;
+    (void) ptr;
+    (void) size;
+#endif
+}
+
+static ERTS_INLINE void
+erts_mmap_file_record_resize(ErtsMemMapper *mm, void *old_ptr, UWord old_size, void *new_ptr, UWord new_size)
+{
+#if HAVE_MMAP
+    ErtsMMapFileMap *p;
+    p = mm->file_maps;
+    while (p) {
+        if (p->start == (char *) old_ptr && p->size == old_size) {
+            p->start = (char *) new_ptr;
+            p->size = new_size;
+            break;
+        }
+        p = p->next;
+    }
+#else
+    (void) mm;
+    (void) old_ptr;
+    (void) old_size;
+    (void) new_ptr;
+    (void) new_size;
+#endif
+}
+
+int
+erts_mmap_name_mapping(ErtsMemMapper *mm, void *ptr, UWord size, const char *name)
+{
+#if HAVE_MMAP
+    ErtsMMapFileMap *p;
+    char new_path[PATH_MAX];
+    char *new_path_heap;
+
+    if (!name || !name[0]) {
+        return 0;
+    }
+
+    p = mm->file_maps;
+    while (p) {
+        if (p->start == (char *) ptr && p->size == size) {
+            break;
+        }
+        p = p->next;
+    }
+
+    if (!p) {
+        return 0;
+    }
+
+    erts_snprintf(new_path, sizeof(new_path), "_mmap-records/%s", name);
+    new_path[sizeof(new_path) - 1] = '\0';
+
+    unlink(new_path);
+    if (rename(p->path, new_path) != 0) {
+        return 0;
+    }
+
+    new_path_heap = (char *) malloc(strlen(new_path) + 1);
+    if (!new_path_heap) {
+        return 1;
+    }
+    strcpy(new_path_heap, new_path);
+    free(p->path);
+    p->path = new_path_heap;
+    return 1;
+#else
+    (void) mm;
+    (void) ptr;
+    (void) size;
+    (void) name;
+    return 0;
+#endif
+}
+
+static int
+erts_mmap_prefix_mapping_name(ErtsMemMapper *mm, void *ptr, UWord size, const char *prefix)
+{
+#if HAVE_MMAP
+    ErtsMMapFileMap *p;
+    const char *base;
+    const char *tail;
+    char new_name[PATH_MAX];
+
+    if (!prefix || !prefix[0]) {
+        return 0;
+    }
+
+    p = mm->file_maps;
+    while (p) {
+        if (p->start == (char *) ptr && p->size == size) {
+            break;
+        }
+        p = p->next;
+    }
+    if (!p) {
+        return 0;
+    }
+
+    base = strrchr(p->path, '/');
+    base = base ? base + 1 : p->path;
+    tail = strstr(base, "erts-mmap-");
+    if (!tail) {
+        tail = base;
+    }
+    if (strncmp(base, prefix, strlen(prefix)) == 0 && base[strlen(prefix)] == '_') {
+        return 1;
+    }
+    erts_snprintf(new_name, sizeof(new_name), "%s_%s", prefix, tail);
+    new_name[sizeof(new_name) - 1] = '\0';
+    return erts_mmap_name_mapping(mm, ptr, size, new_name);
+#else
+    (void) mm;
+    (void) ptr;
+    (void) size;
+    (void) prefix;
+    return 0;
+#endif
+}
+
+int
+erts_mmap_name_mapping_global(void *ptr, UWord size, const char *name)
+{
+#if HAVE_MMAP
+    if (erts_mmap_name_mapping(&erts_dflt_mmapper, ptr, size, name)) {
+        return 1;
+    }
+#if defined(ARCH_64) && defined(ERTS_HAVE_OS_PHYSICAL_MEMORY_RESERVATION)
+    if (erts_mmap_name_mapping(&erts_literal_mmapper, ptr, size, name)) {
+        return 1;
+    }
+#endif
+#else
+    (void) ptr;
+    (void) size;
+    (void) name;
+#endif
+    return 0;
+}
+
+int
+erts_mmap_prefix_mapping_name_global(void *ptr, UWord size, const char *prefix)
+{
+#if HAVE_MMAP
+    if (erts_mmap_prefix_mapping_name(&erts_dflt_mmapper, ptr, size, prefix)) {
+        return 1;
+    }
+#if defined(ARCH_64) && defined(ERTS_HAVE_OS_PHYSICAL_MEMORY_RESERVATION)
+    if (erts_mmap_prefix_mapping_name(&erts_literal_mmapper, ptr, size, prefix)) {
+        return 1;
+    }
+#endif
+#else
+    (void) ptr;
+    (void) size;
+    (void) prefix;
+#endif
+    return 0;
+}
+
+static ERTS_INLINE int
+erts_mmap_prepare_file(UWord size, int *fd_out, char **path_out)
+{
+#if HAVE_MMAP
+    char tmpl[PATH_MAX];
+    char *path;
+    int fd;
+
+    if (!erts_mmap_ensure_records_dir()) {
+        return 0;
+    }
+
+    erts_snprintf(tmpl, sizeof(tmpl), "_mmap-records/erts-mmap-XXXXXX");
+    fd = mkstemp(tmpl);
+    if (fd < 0) {
+        return 0;
+    }
+    if (ftruncate(fd, (off_t) size) != 0) {
+        close(fd);
+        unlink(tmpl);
+        return 0;
+    }
+    path = (char *) malloc(strlen(tmpl) + 1);
+    if (!path) {
+        close(fd);
+        unlink(tmpl);
+        return 0;
+    }
+    strcpy(path, tmpl);
+
+    *fd_out = fd;
+    *path_out = path;
+    return 1;
+#else
+    (void) size;
+    (void) fd_out;
+    (void) path_out;
+    return 0;
+#endif
+}
+
+static ERTS_INLINE void *
+os_mmap(ErtsMemMapper *mm, void *hint_ptr, UWord size)
+{
+#if HAVE_MMAP
+    void *res;
+    int fd;
+    char *path = NULL;
+
+    if (!erts_mmap_prepare_file(size, &fd, &path)) {
+        return os_mmap_raw(mm, hint_ptr, size, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS);
+    }
+
+    res = os_mmap_raw(mm, hint_ptr, size, fd, ERTS_MMAP_FLAGS);
+    if (!res) {
+        close(fd);
+        unlink(path);
+        free(path);
+        return os_mmap_raw(mm, hint_ptr, size, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS);
+    }
+    close(fd);
+    erts_mmap_file_record_add(mm, res, size, path);
+    return res;
+#elif HAVE_VIRTUALALLOC
+    return os_mmap_raw(mm, hint_ptr, size, -1, 0);
+#else
+#  error "missing mmap() or similar"
+#endif
+}
+
+static ERTS_INLINE void
+os_munmap(ErtsMemMapper *mm, void *ptr, UWord size)
+{
+    os_munmap_raw(ptr, size);
+    erts_mmap_file_record_remove_exact(mm, ptr, size);
+}
+
 #define ALIGN_UP(x, a) ((void*)((((UWord)(x)) + ((a) - 1)) & ~((a) - 1)))
 #define IS_ALIGNED(x, a) ((((UWord)(x)) & ((a) - 1)) == 0)
+
+static ERTS_INLINE void *
+os_mmap_aligned_raw(ErtsMemMapper *mm, UWord size, UWord alignment);
 
 /*
  * Just like os_mmap, but ensures that mapping is a multiple of the
@@ -1348,52 +1660,50 @@ os_munmap(void *ptr, UWord size)
  * the page size in bytes.
  */
 static ERTS_INLINE void *
-os_mmap_aligned(UWord size, UWord alignment)
+os_mmap_aligned(ErtsMemMapper *mm, UWord size, UWord alignment)
 {
     char *result;
 #ifdef MAP_ALIGN
+    int fd;
+    char *path = NULL;
 
     /*
      * On an operating systems that support MAP_ALIGN (SunOS >=5.9) we
      * can directly ask mmap(2) to align the virtual memory mapping.
      */
-    result = mmap((void *) alignment, size, ERTS_MMAP_PROT,
-                  ERTS_MMAP_FLAGS|MAP_ALIGN, ERTS_MMAP_FD, 0);
-    if (result == MAP_FAILED) {
-        return NULL;
+    if (!erts_mmap_prepare_file(size, &fd, &path)) {
+        return os_mmap_aligned_raw(mm, size, alignment);
     }
+    result = os_mmap_raw(mm, (void *) alignment, size, fd, ERTS_MMAP_FLAGS|MAP_ALIGN);
+    if (!result) {
+        close(fd);
+        unlink(path);
+        free(path);
+        return os_mmap_aligned_raw(mm, size, alignment);
+    }
+    close(fd);
+    erts_mmap_file_record_add(mm, result, size, path);
 #else
     UWord diff;
+    int fd;
+    char *path = NULL;
+    void *raw;
+    UWord raw_size = size + alignment;
 
     ASSERT((size % sys_page_size) == 0);
     ASSERT((alignment % sys_page_size) == 0);
 
-    /*
-     * Allocate and test for alignment.  It is possible 1) the
-     * operating aligned the allocation based its length or 2) the
-     * previous allocation aligned the next available address.
-     */
-    if ((result = os_mmap(NULL, size)) == NULL) {
-        return NULL;
+    if (!erts_mmap_prepare_file(raw_size, &fd, &path)) {
+        return os_mmap_aligned_raw(mm, size, alignment);
     }
-
-    if (IS_ALIGNED(result, alignment)) {
-        return result;
+    raw = os_mmap_raw(mm, NULL, raw_size, fd, ERTS_MMAP_FLAGS);
+    if (!raw) {
+        close(fd);
+        unlink(path);
+        free(path);
+        return os_mmap_aligned_raw(mm, size, alignment);
     }
-
-    /*
-     * The virtual memory allocation was not aligned, clean-up the
-     * mapping so we can try a different strategy.
-     */
-    os_munmap(result, size);
-
-    /*
-     * Retry the virtual memory allocation adding padding to ensure
-     * the requested alignment.
-     */
-    if ((result = os_mmap(NULL, size + alignment)) == NULL) {
-        return NULL;
-    }
+    result = (char *) raw;
 
     diff = (char *)ALIGN_UP(result, alignment) - result;
 
@@ -1403,7 +1713,7 @@ os_mmap_aligned(UWord size, UWord alignment)
      * unmap.
      */
     if (diff != 0) {
-        os_munmap(result, diff);
+        os_munmap_raw(result, diff);
         result += diff;
     }
 
@@ -1411,9 +1721,54 @@ os_mmap_aligned(UWord size, UWord alignment)
      * Unmap extra pages at the end of the allocation.  There must
      * always be at least one.
      */
-    os_munmap(result + size, alignment - diff);
+    os_munmap_raw(result + size, alignment - diff);
+    close(fd);
+    erts_mmap_file_record_add(mm, result, size, path);
 #endif
 
+    return result;
+}
+
+static ERTS_INLINE void *
+os_mmap_aligned_raw(ErtsMemMapper *mm, UWord size, UWord alignment)
+{
+    char *result;
+#ifdef MAP_ALIGN
+    result = os_mmap_raw(mm,
+                         (void *) alignment,
+                         size,
+                         ERTS_MMAP_FD_FOR_MM(mm),
+                         ERTS_MMAP_FLAGS|MAP_ALIGN);
+    if (!result) {
+        return NULL;
+    }
+#else
+    UWord diff;
+
+    ASSERT((size % sys_page_size) == 0);
+    ASSERT((alignment % sys_page_size) == 0);
+
+    if ((result = os_mmap_raw(mm, NULL, size, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS)) == NULL) {
+        return NULL;
+    }
+
+    if (IS_ALIGNED(result, alignment)) {
+        return result;
+    }
+
+    os_munmap_raw(result, size);
+
+    if ((result = os_mmap_raw(mm, NULL, size + alignment, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS)) == NULL) {
+        return NULL;
+    }
+
+    diff = (char *)ALIGN_UP(result, alignment) - result;
+    if (diff != 0) {
+        os_munmap_raw(result, diff);
+        result += diff;
+    }
+    os_munmap_raw(result + size, alignment - diff);
+#endif
     return result;
 }
 
@@ -1426,7 +1781,7 @@ os_mmap_aligned(UWord size, UWord alignment)
 #    endif
 #  endif
 static ERTS_INLINE void *
-os_mremap(void *ptr, UWord old_size, UWord new_size)
+os_mremap(ErtsMemMapper *mm, void *ptr, UWord old_size, UWord new_size)
 {
     void *new_seg;
 #if HAVE_MREMAP
@@ -1437,6 +1792,7 @@ os_mremap(void *ptr, UWord old_size, UWord new_size)
 		     (size_t) new_size, ERTS_MREMAP_FLAGS);
     if (new_seg == (void *) MAP_FAILED)
 	return NULL;
+    erts_mmap_file_record_resize(mm, ptr, old_size, new_seg, new_size);
     return new_seg;
 #else
 #  error "missing mremap() or similar"
@@ -1466,7 +1822,7 @@ static int
 os_reserve_physical(char *ptr, UWord size)
 {
     void *res = mmap((void *) ptr, (size_t) size, ERTS_MMAP_RESERVE_PROT,
-		     ERTS_MMAP_RESERVE_FLAGS, ERTS_MMAP_FD, 0);
+		     ERTS_MMAP_RESERVE_FLAGS, -1, 0);
     if (res == (void *) MAP_FAILED)
 	return 0;
     return 1;
@@ -1476,7 +1832,7 @@ static void
 os_unreserve_physical(char *ptr, UWord size)
 {
     void *res = mmap((void *) ptr, (size_t) size, ERTS_MMAP_UNRESERVE_PROT,
-		     ERTS_MMAP_UNRESERVE_FLAGS, ERTS_MMAP_FD, 0);
+		     ERTS_MMAP_UNRESERVE_FLAGS, -1, 0);
     if (res == (void *) MAP_FAILED)
 	erts_exit(ERTS_ABORT_EXIT, "Failed to unreserve memory");
 }
@@ -1488,7 +1844,7 @@ os_mmap_virtual(char *ptr, UWord size)
     void* res;
 
     res = mmap((void *) ptr, (size_t) size, ERTS_MMAP_VIRTUAL_PROT,
-               flags, ERTS_MMAP_FD, 0);
+               flags, -1, 0);
     if (res == (void *) MAP_FAILED)
 	return NULL;
     return res;
@@ -1544,7 +1900,11 @@ alloc_desc_insert_free_seg(ErtsMemMapper* mm,
 
 #if ERTS_HAVE_OS_MMAP
     if (!mm->no_os_mmap) {
-        ptr = os_mmap(mm->desc.new_area_hint, ERTS_PAGEALIGNED_SIZE);
+        ptr = os_mmap_raw(mm,
+                          mm->desc.new_area_hint,
+                          ERTS_PAGEALIGNED_SIZE,
+                          ERTS_MMAP_FD_FOR_MM(mm),
+                          ERTS_MMAP_FLAGS);
         if (ptr) {
             mm->desc.new_area_hint = ptr+ERTS_PAGEALIGNED_SIZE;
             ERTS_MMAP_SIZE_OS_INC(ERTS_PAGEALIGNED_SIZE);
@@ -1752,13 +2112,13 @@ erts_mmap(ErtsMemMapper* mm, Uint32 flags, UWord *sizep)
     /* Map using OS primitives */
     if (!(ERTS_MMAPFLG_SUPERCARRIER_ONLY & flags) && !mm->no_os_mmap) {
 	if (!(ERTS_MMAPFLG_SUPERALIGNED & flags)) {
-	    seg = os_mmap(NULL, asize);
+	    seg = os_mmap(mm, NULL, asize);
 	    if (!seg)
 		goto failure;
 	}
 	else {
 	    asize = ERTS_SUPERALIGNED_CEILING(*sizep);
-	    seg = os_mmap_aligned(asize, ERTS_SUPERALIGNED_SIZE);
+	    seg = os_mmap_aligned(mm, asize, ERTS_SUPERALIGNED_SIZE);
 	    if (!seg)
 		goto failure;
 	}
@@ -1810,7 +2170,7 @@ erts_munmap(ErtsMemMapper* mm, Uint32 flags, void *ptr, UWord size)
 #if ERTS_HAVE_OS_MMAP
 	ERTS_MUNMAP_OP_LCK(ptr, size);
 	ERTS_MMAP_SIZE_OS_DEC(size);
-	os_munmap(ptr, size);
+	os_munmap(mm, ptr, size);
 #endif
     }
     else {
@@ -1971,7 +2331,8 @@ erts_mremap(ErtsMemMapper* mm,
 	    ERTS_MMAP_ASSERT((((char *)ptr) + old_size) > (char *) new_ptr);
 	    um_sz = (UWord) ((((char *) ptr) + old_size) - (char *) new_ptr); 
 	    ERTS_MMAP_SIZE_OS_DEC(um_sz);
-	    os_munmap(new_ptr, um_sz);
+	    os_munmap(mm, new_ptr, um_sz);
+	    erts_mmap_file_record_resize(mm, ptr, old_size, ptr, asize);
 	    ERTS_MREMAP_OP_LCK(ptr, ptr, old_size, *sizep, asize);
 	    *sizep = asize;
 	    return ptr;
@@ -1981,7 +2342,7 @@ erts_mremap(ErtsMemMapper* mm,
 	if (superaligned) {
 	    return remap_move(mm, flags, ptr, old_size, sizep);
 	} else {
-	    new_ptr = os_mremap(ptr, old_size, asize);
+	    new_ptr = os_mremap(mm, ptr, old_size, asize);
 	    if (!new_ptr)
 		return NULL;
 	    if (asize > old_size)
@@ -2256,8 +2617,9 @@ erts_mmap_init(ErtsMemMapper* mm, ErtsMMapInit *init)
     mm->supercarrier = 0;
     mm->reserve_physical = reserve_noop;
     mm->unreserve_physical = unreserve_noop;
+    mm->file_maps = NULL;
 
-#if HAVE_MMAP && !defined(MAP_ANON)
+#if HAVE_MMAP && !defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
     mm->mmap_fd = open("/dev/zero", O_RDWR);
     if (mm->mmap_fd < 0)
 	erts_exit(1, "erts_mmap: Failed to open /dev/zero\n");
@@ -2283,7 +2645,7 @@ erts_mmap_init(ErtsMemMapper* mm, ErtsMMapInit *init)
 		     "erts_mmap: Failed to create virtual range for super carrier\n");
 	sz = start - ptr;
 	if (sz)
-	    os_munmap(end, sz);
+	    os_munmap_raw(end, sz);
 	mm->reserve_physical = os_reserve_physical;
 	mm->unreserve_physical = os_unreserve_physical;
 	virtual_map = 1;
@@ -2320,7 +2682,7 @@ erts_mmap_init(ErtsMemMapper* mm, ErtsMMapInit *init)
 		alignment = MAX(sys_large_page_size, ERTS_SUPERALIGNED_SIZE);
 	    else
 		alignment = ERTS_SUPERALIGNED_SIZE;
-	    start = os_mmap_aligned(sz, alignment);
+		    start = os_mmap_aligned_raw(mm, sz, alignment);
 	}
 	if (!start)
 	    erts_exit(1,

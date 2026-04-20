@@ -46,6 +46,8 @@
 #include "erl_cpu_topology.h"
 #include "erl_thr_queue.h"
 #include "erl_nfunc_sched.h"
+#include <fcntl.h>
+#include <unistd.h>
 #if defined(ERTS_ALC_T_DRV_SEL_D_STATE) || defined(ERTS_ALC_T_DRV_EV_D_STATE)
 #include "erl_check_io.h"
 #endif
@@ -98,6 +100,119 @@ static Uint install_debug_functions(void);
 #endif
 
 static int lock_all_physical_memory = 0;
+static int erts_alloc_trace_fd = -1;
+static int erts_alloc_struct_csv_fd = -1;
+
+static ERTS_INLINE void
+erts_alloc_trace_write(const char *line, int len)
+{
+    if (erts_alloc_trace_fd >= 0 && len > 0) {
+        ssize_t wres = write(erts_alloc_trace_fd, line, (size_t) len);
+        (void) wres;
+    }
+}
+
+static ERTS_INLINE void
+erts_alloc_struct_csv_write(const char *line, int len)
+{
+    if (erts_alloc_struct_csv_fd >= 0 && len > 0) {
+        ssize_t wres = write(erts_alloc_struct_csv_fd, line, (size_t) len);
+        (void) wres;
+    }
+}
+
+void
+erts_alloc_trace_erts_alloc_call(ErtsAlcType_t type, Uint size, void *res)
+{
+    char line[160];
+    int len;
+    if (erts_alloc_trace_fd < 0 && erts_alloc_struct_csv_fd < 0) {
+        return;
+    }
+    len = erts_snprintf(line, sizeof(line),
+                        "ALLOC type=%u size=%lu ptr=%p\n",
+                        (unsigned int) type,
+                        (unsigned long) size,
+                        res);
+    if (len < 0) {
+        return;
+    }
+    if (len >= (int) sizeof(line)) {
+        len = (int) sizeof(line) - 1;
+    }
+    erts_alloc_trace_write(line, len);
+}
+
+void
+erts_alloc_trace_note_alloc(const char *tag, void *ptr, UWord size)
+{
+    char line[256];
+    char csv_line[192];
+    int len;
+    int csv_len;
+    const char *safe_tag;
+    if (erts_alloc_trace_fd < 0) {
+        return;
+    }
+    safe_tag = tag ? tag : "unknown";
+    len = erts_snprintf(line, sizeof(line),
+                        "STRUCT_ALLOC tag=%s size=%lu ptr=%p\n",
+                        safe_tag,
+                        (unsigned long) size,
+                        ptr);
+    if (len < 0) {
+        return;
+    }
+    if (len >= (int) sizeof(line)) {
+        len = (int) sizeof(line) - 1;
+    }
+    if (erts_alloc_trace_fd >= 0) {
+        erts_alloc_trace_write(line, len);
+    }
+    if (erts_alloc_struct_csv_fd >= 0) {
+        csv_len = erts_snprintf(csv_line, sizeof(csv_line),
+                                "%s,%p\n",
+                                safe_tag,
+                                ptr);
+        if (csv_len < 0) {
+            return;
+        }
+        if (csv_len >= (int) sizeof(csv_line)) {
+            csv_len = (int) sizeof(csv_line) - 1;
+        }
+        erts_alloc_struct_csv_write(csv_line, csv_len);
+    }
+}
+
+void
+erts_alloc_trace_carrier_create(const char *alloc_name,
+                                int alloc_ix,
+                                UWord carrier_size,
+                                int is_mseg,
+                                int is_sbc,
+                                void *carrier_ptr)
+{
+    char line[256];
+    int len;
+    if (erts_alloc_trace_fd < 0) {
+        return;
+    }
+    len = erts_snprintf(line, sizeof(line),
+                        "CARRIER_CREATE alloc=%s ix=%d size=%lu kind=%s source=%s ptr=%p\n",
+                        alloc_name ? alloc_name : "unknown",
+                        alloc_ix,
+                        (unsigned long) carrier_size,
+                        is_sbc ? "sbc" : "mbc",
+                        is_mseg ? "mseg" : "sys_alloc",
+                        carrier_ptr);
+    if (len < 0) {
+        return;
+    }
+    if (len >= (int) sizeof(line)) {
+        len = (int) sizeof(line) - 1;
+    }
+    erts_alloc_trace_write(line, len);
+}
 
 ErtsAllocatorFunctions_t ERTS_WRITE_UNLIKELY(erts_allctrs[ERTS_ALC_A_MAX+1]);
 ErtsAllocatorInfo_t erts_allctrs_info[ERTS_ALC_A_MAX+1];
@@ -663,6 +778,24 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
 
     erts_sys_alloc_init();
     erts_init_utils_mem();
+
+    {
+        const char *trace_path = getenv("ERTS_ALLOC_TRACE_FILE");
+        const char *csv_path = getenv("ERTS_ALLOC_STRUCT_CSV_FILE");
+        if (trace_path && trace_path[0] != '\0') {
+            erts_alloc_trace_fd = open(trace_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
+        }
+        if (csv_path && csv_path[0] != '\0') {
+            erts_alloc_struct_csv_fd = open(csv_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
+        } else if (trace_path && trace_path[0] != '\0') {
+            char default_csv_path[512];
+            int plen = erts_snprintf(default_csv_path, sizeof(default_csv_path),
+                                     "%s.struct_alloc.csv", trace_path);
+            if (plen > 0 && plen < (int) sizeof(default_csv_path)) {
+                erts_alloc_struct_csv_fd = open(default_csv_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
+            }
+        }
+    }
 
     set_default_sl_alloc_opts(&init.sl_alloc);
     set_default_std_alloc_opts(&init.std_alloc);
