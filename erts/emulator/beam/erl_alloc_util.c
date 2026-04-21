@@ -6945,6 +6945,12 @@ erts_alcu_start(Allctr_t *allctr, AllctrInit_t *init)
     allctr->try_set_dyn_param = &erts_alcu_try_set_dyn_param;
 
 #if HAVE_ERTS_MSEG
+    {
+        int force_mseg = (allctr->alloc_no == ERTS_ALC_A_LONG_LIVED);
+        int force_sys = (allctr->alloc_no == ERTS_ALC_A_SYSTEM
+                         || allctr->alloc_no == ERTS_ALC_A_TEMPORARY
+                         || allctr->alloc_no == ERTS_ALC_A_DRIVER);
+
     if (init->mseg_alloc) {
         ASSERT(init->mseg_realloc && init->mseg_dealloc);
         allctr->mseg_alloc   = init->mseg_alloc;
@@ -6968,16 +6974,28 @@ erts_alcu_start(Allctr_t *allctr, AllctrInit_t *init)
         allctr->crr_set_flgs = CFLG_FORCE_SYS_ALLOC;
         allctr->crr_clr_flgs = CFLG_FORCE_MSEG;
     }
+    else if (force_mseg) {
+        allctr->crr_set_flgs = CFLG_FORCE_MSEG;
+        allctr->crr_clr_flgs = CFLG_FORCE_SYS_ALLOC;
+    }
+    else if (force_sys) {
+        allctr->crr_set_flgs = CFLG_FORCE_SYS_ALLOC;
+        allctr->crr_clr_flgs = CFLG_FORCE_MSEG;
+    }
+    }
 #endif
 
     if (allctr->main_carrier_size && (allctr->ix != 0 || init->mmbc0)) {
 	Block_t *blk;
+        Uint create_flags;
+
+        create_flags = (allctr->alloc_no == ERTS_ALC_A_LONG_LIVED
+                        ? CFLG_FORCE_MSEG
+                        : CFLG_FORCE_SYS_ALLOC);
 
 	blk = create_carrier(allctr,
 			     allctr->main_carrier_size,
-                             (ERTS_SUPER_ALIGNED_MSEG_ONLY
-                              ? CFLG_FORCE_MSEG : CFLG_FORCE_SYS_ALLOC)
-                             | CFLG_MBC
+                             create_flags | CFLG_MBC
 			     | CFLG_FORCE_SIZE
 			     | CFLG_NO_CPOOL
 			     | CFLG_MAIN_CARRIER);

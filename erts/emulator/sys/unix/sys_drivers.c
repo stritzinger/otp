@@ -1592,9 +1592,8 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
     int fds[2];
     int res, unbind;
     char bindir[MAXPATHLEN];
+    char child_setup_prog[MAXPATHLEN + 64];
     size_t bindirsz = sizeof(bindir);
-    Uint csp_path_sz;
-    char *child_setup_prog;
 
     forker_port = erts_drvport2id(port_num);
 
@@ -1609,16 +1608,8 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
         erts_exit(1,
                  "Environment variable BINDIR does not contain an"
                  " absolute path\n");
-    csp_path_sz = (strlen(bindir)
-                   + 1 /* DIR_SEPARATOR_CHAR */
-                   + sizeof(CHILD_SETUP_PROG_NAME)
-                   + 1);
-    child_setup_prog = erts_alloc(ERTS_ALC_T_CS_PROG_PATH, csp_path_sz);
-    erts_snprintf(child_setup_prog, csp_path_sz,
-                  "%s%c%s",
-                  bindir,
-                  DIR_SEPARATOR_CHAR,
-                  CHILD_SETUP_PROG_NAME);
+    erts_snprintf(child_setup_prog, sizeof(child_setup_prog),
+                  "%s%c%s", bindir, DIR_SEPARATOR_CHAR, CHILD_SETUP_PROG_NAME);
     if (socketpair(AF_UNIX, SOCK_STREAM, 0, fds) < 0) {
         erts_exit(ERTS_ABORT_EXIT,
                  "Could not open unix domain socket in spawn_init: %d\n",
@@ -1660,8 +1651,6 @@ static ErlDrvData forker_start(ErlDrvPort port_num, char* name,
     }
 
     erts_sched_bind_atfork_parent(unbind);
-
-    erts_free(ERTS_ALC_T_CS_PROG_PATH, child_setup_prog);
 
     close(fds[1]);
 
