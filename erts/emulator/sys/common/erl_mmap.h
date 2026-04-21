@@ -158,6 +158,13 @@ Eterm erts_mmap_info(ErtsMemMapper*, fmtfn_t *print_to_p, void *print_to_arg,
 Eterm erts_mmap_info_options(ErtsMemMapper*,
                              char *prefix, fmtfn_t *print_to_p, void *print_to_arg,
                              Uint **hpp, Uint *szp);
+int erts_mmap_record_option_record(const char *path);
+int erts_mmap_record_option_replay(const char *path);
+int erts_mmap_record_option_enabled(void);
+int erts_mmap_record_init(void);
+void *erts_mmap_record_alloc(UWord *sizep, Uint32 mmap_flags);
+void erts_mmap_record_free(void *ptr, UWord size);
+void *erts_mmap_record_realloc(void *ptr, UWord old_size, UWord *sizep, Uint32 mmap_flags);
 
 #ifdef ERTS_WANT_MEM_MAPPERS
 #  include "erl_alloc_types.h"

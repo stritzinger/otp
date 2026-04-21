@@ -267,7 +267,11 @@ mseg_create(ErtsMsegAllctr_t *ma, Uint flags, UWord *sizep)
     if (MSEG_FLG_IS_2POW(flags))
 	mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
-    seg = erts_mmap(&erts_dflt_mmapper, mmap_flags, sizep);
+    if (erts_mmap_record_option_enabled()) {
+        seg = erts_mmap_record_alloc(sizep, mmap_flags);
+    } else {
+        seg = erts_mmap(&erts_dflt_mmapper, mmap_flags, sizep);
+    }
 
 #ifdef ERTS_PRINT_ERTS_MMAP
     erts_fprintf(stderr, "%p = erts_mmap(%s, {%bpu, %bpu});\n", seg,
@@ -287,7 +291,11 @@ mseg_destroy(ErtsMsegAllctr_t *ma, Uint flags, void *seg_p, UWord size) {
     if (MSEG_FLG_IS_2POW(flags))
 	 mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
-    erts_munmap(&erts_dflt_mmapper, mmap_flags, seg_p, size);
+    if (erts_mmap_record_option_enabled()) {
+        erts_mmap_record_free(seg_p, size);
+    } else {
+        erts_munmap(&erts_dflt_mmapper, mmap_flags, seg_p, size);
+    }
 #ifdef ERTS_PRINT_ERTS_MMAP
     erts_fprintf(stderr, "erts_munmap(%s, %p, %bpu);\n",
 		 (mmap_flags & ERTS_MMAPFLG_SUPERALIGNED) ? "sa" : "sua",
@@ -308,7 +316,11 @@ mseg_recreate(ErtsMsegAllctr_t *ma, Uint flags, void *old_seg, UWord old_size, U
     if (MSEG_FLG_IS_2POW(flags))
 	mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
-    new_seg = erts_mremap(&erts_dflt_mmapper, mmap_flags, old_seg, old_size, sizep);
+    if (erts_mmap_record_option_enabled()) {
+        new_seg = erts_mmap_record_realloc(old_seg, old_size, sizep, mmap_flags);
+    } else {
+        new_seg = erts_mremap(&erts_dflt_mmapper, mmap_flags, old_seg, old_size, sizep);
+    }
 
 #ifdef ERTS_PRINT_ERTS_MMAP
     erts_fprintf(stderr, "%p = erts_mremap(%s, %p, %bpu, {%bpu, %bpu});\n",

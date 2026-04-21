@@ -57,6 +57,7 @@
 #include "erl_global_literals.h"
 #include "erl_iolist.h"
 #include "erl_debugger.h"
+#include "erl_mmap.h"
 
 #include "jit/beam_asm.h"
 
@@ -537,6 +538,8 @@ __decl_noreturn void __noreturn  erts_usage(void)
     int this_rel = this_rel_num();
     erts_fprintf(stderr, "Usage: %s [flags] [ -- [init_args] ]\n", progname(program));
     erts_fprintf(stderr, "The flags are:\n\n");
+    erts_fprintf(stderr, "-record path   create/use a file-backed 100MB mmap arena for mseg carriers\n");
+    erts_fprintf(stderr, "-replay path   reuse an existing 100MB mmap arena file (mutually exclusive with -record)\n");
     erts_fprintf(stderr, "-a size        suggest stack size in kilo words for threads\n");
     erts_fprintf(stderr, "               in the async-thread pool; valid range is [%d-%d]\n",
 		 ERTS_ASYNC_THREAD_MIN_STACK_SIZE,
@@ -877,6 +880,32 @@ early_init(int *argc, char **argv) /*
     if (argc && argv) {
 	int i = 1;
 	while (i < *argc) {
+            if (sys_strcmp(argv[i], "-record") == 0) {
+                char *path = get_arg("", argv[i+1], &i);
+                if (!erts_mmap_record_option_record(path)) {
+                    erts_fprintf(stderr, "-record and -replay are mutually exclusive\n");
+                    erts_usage();
+                }
+                if (!erts_mmap_record_init()) {
+                    erts_fprintf(stderr, "failed to initialize -record mmap arena at %s\n", path);
+                    erts_usage();
+                }
+                i++;
+                continue;
+            }
+            if (sys_strcmp(argv[i], "-replay") == 0) {
+                char *path = get_arg("", argv[i+1], &i);
+                if (!erts_mmap_record_option_replay(path)) {
+                    erts_fprintf(stderr, "-record and -replay are mutually exclusive\n");
+                    erts_usage();
+                }
+                if (!erts_mmap_record_init()) {
+                    erts_fprintf(stderr, "failed to initialize -replay mmap arena from %s\n", path);
+                    erts_usage();
+                }
+                i++;
+                continue;
+            }
 	    if (sys_strcmp(argv[i], "--") == 0) { /* end of emulator options */
 		i++;
 		break;
@@ -1344,6 +1373,16 @@ erl_start(int argc, char **argv)
     sys_proc_outst_req_lim = 2*erts_no_schedulers;
 
     while (i < argc) {
+        if (sys_strcmp(argv[i], "-record") == 0) {
+            (void) get_arg("", argv[i+1], &i);
+            i++;
+            continue;
+        }
+        if (sys_strcmp(argv[i], "-replay") == 0) {
+            (void) get_arg("", argv[i+1], &i);
+            i++;
+            continue;
+        }
 	if (argv[i][0] != '-') {
 	    erts_usage();
 	}

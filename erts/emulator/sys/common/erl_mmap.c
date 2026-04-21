@@ -349,14 +349,6 @@ typedef struct {
     Uint nseg;
 }ErtsFreeSegMap;
 
-typedef struct ErtsMMapFileMap_ ErtsMMapFileMap;
-struct ErtsMMapFileMap_ {
-    char *start;
-    UWord size;
-    char *path;
-    ErtsMMapFileMap *next;
-};
-
 struct ErtsMemMapper_ {
     int (*reserve_physical)(char *, UWord);
     void (*unreserve_physical)(char *, UWord);
@@ -381,7 +373,6 @@ struct ErtsMemMapper_ {
 #if HAVE_MMAP && (!defined(MAP_ANON) && !defined(MAP_ANONYMOUS))
     int mmap_fd;
 #endif
-    ErtsMMapFileMap *file_maps;
     erts_mtx_t mtx;
     struct {
 	char *free_list;
@@ -1311,23 +1302,6 @@ Eterm build_free_seg_list(Process* p, ErtsFreeSegMap* map)
 #  endif
 #endif
 
-static ERTS_INLINE int
-erts_mmap_ensure_records_dir(void)
-{
-#if HAVE_MMAP
-    static int dir_initialized = 0;
-    if (!dir_initialized) {
-        if (mkdir("_mmap-records", 0777) != 0 && errno != EEXIST) {
-            return 0;
-        }
-        dir_initialized = 1;
-    }
-    return 1;
-#else
-    return 0;
-#endif
-}
-
 static ERTS_INLINE void *
 os_mmap_raw(ErtsMemMapper *mm, void *hint_ptr, UWord size, int fd, int flags)
 {
@@ -1366,169 +1340,24 @@ os_munmap_raw(void *ptr, UWord size)
 #endif
 }
 
-static ERTS_INLINE void
-erts_mmap_file_record_add(ErtsMemMapper *mm, void *ptr, UWord size, char *path)
-{
-#if HAVE_MMAP
-    ErtsMMapFileMap *rec = (ErtsMMapFileMap *) malloc(sizeof(*rec));
-    if (!rec) {
-        unlink(path);
-        free(path);
-        erts_exit(ERTS_ABORT_EXIT, "erts_mmap: failed to allocate file mapping record\n");
-    }
-    rec->start = (char *) ptr;
-    rec->size = size;
-    rec->path = path;
-    rec->next = mm->file_maps;
-    mm->file_maps = rec;
-#else
-    (void) mm;
-    (void) ptr;
-    (void) size;
-    (void) path;
-#endif
-}
-
-static ERTS_INLINE void
-erts_mmap_file_record_remove_exact(ErtsMemMapper *mm, void *ptr, UWord size)
-{
-#if HAVE_MMAP
-    ErtsMMapFileMap **pp, *p;
-    pp = &mm->file_maps;
-    p = *pp;
-    while (p) {
-        if (p->start == (char *) ptr && p->size == size) {
-            *pp = p->next;
-            unlink(p->path);
-            free(p->path);
-            free(p);
-            return;
-        }
-        pp = &p->next;
-        p = p->next;
-    }
-#else
-    (void) mm;
-    (void) ptr;
-    (void) size;
-#endif
-}
-
-static ERTS_INLINE void
-erts_mmap_file_record_resize(ErtsMemMapper *mm, void *old_ptr, UWord old_size, void *new_ptr, UWord new_size)
-{
-#if HAVE_MMAP
-    ErtsMMapFileMap *p;
-    p = mm->file_maps;
-    while (p) {
-        if (p->start == (char *) old_ptr && p->size == old_size) {
-            p->start = (char *) new_ptr;
-            p->size = new_size;
-            break;
-        }
-        p = p->next;
-    }
-#else
-    (void) mm;
-    (void) old_ptr;
-    (void) old_size;
-    (void) new_ptr;
-    (void) new_size;
-#endif
-}
-
 int
 erts_mmap_name_mapping(ErtsMemMapper *mm, void *ptr, UWord size, const char *name)
 {
-#if HAVE_MMAP
-    ErtsMMapFileMap *p;
-    char new_path[PATH_MAX];
-    char *new_path_heap;
-
-    if (!name || !name[0]) {
-        return 0;
-    }
-
-    p = mm->file_maps;
-    while (p) {
-        if (p->start == (char *) ptr && p->size == size) {
-            break;
-        }
-        p = p->next;
-    }
-
-    if (!p) {
-        return 0;
-    }
-
-    erts_snprintf(new_path, sizeof(new_path), "_mmap-records/%s", name);
-    new_path[sizeof(new_path) - 1] = '\0';
-
-    unlink(new_path);
-    if (rename(p->path, new_path) != 0) {
-        return 0;
-    }
-
-    new_path_heap = (char *) malloc(strlen(new_path) + 1);
-    if (!new_path_heap) {
-        return 1;
-    }
-    strcpy(new_path_heap, new_path);
-    free(p->path);
-    p->path = new_path_heap;
-    return 1;
-#else
     (void) mm;
     (void) ptr;
     (void) size;
     (void) name;
     return 0;
-#endif
 }
 
 static int
 erts_mmap_prefix_mapping_name(ErtsMemMapper *mm, void *ptr, UWord size, const char *prefix)
 {
-#if HAVE_MMAP
-    ErtsMMapFileMap *p;
-    const char *base;
-    const char *tail;
-    char new_name[PATH_MAX];
-
-    if (!prefix || !prefix[0]) {
-        return 0;
-    }
-
-    p = mm->file_maps;
-    while (p) {
-        if (p->start == (char *) ptr && p->size == size) {
-            break;
-        }
-        p = p->next;
-    }
-    if (!p) {
-        return 0;
-    }
-
-    base = strrchr(p->path, '/');
-    base = base ? base + 1 : p->path;
-    tail = strstr(base, "erts-mmap-");
-    if (!tail) {
-        tail = base;
-    }
-    if (strncmp(base, prefix, strlen(prefix)) == 0 && base[strlen(prefix)] == '_') {
-        return 1;
-    }
-    erts_snprintf(new_name, sizeof(new_name), "%s_%s", prefix, tail);
-    new_name[sizeof(new_name) - 1] = '\0';
-    return erts_mmap_name_mapping(mm, ptr, size, new_name);
-#else
     (void) mm;
     (void) ptr;
     (void) size;
     (void) prefix;
     return 0;
-#endif
 }
 
 int
@@ -1571,81 +1400,17 @@ erts_mmap_prefix_mapping_name_global(void *ptr, UWord size, const char *prefix)
     return 0;
 }
 
-static ERTS_INLINE int
-erts_mmap_prepare_file(UWord size, int *fd_out, char **path_out)
-{
-#if HAVE_MMAP
-    char tmpl[PATH_MAX];
-    char *path;
-    int fd;
-
-    if (!erts_mmap_ensure_records_dir()) {
-        return 0;
-    }
-
-    erts_snprintf(tmpl, sizeof(tmpl), "_mmap-records/erts-mmap-XXXXXX");
-    fd = mkstemp(tmpl);
-    if (fd < 0) {
-        return 0;
-    }
-    if (ftruncate(fd, (off_t) size) != 0) {
-        close(fd);
-        unlink(tmpl);
-        return 0;
-    }
-    path = (char *) malloc(strlen(tmpl) + 1);
-    if (!path) {
-        close(fd);
-        unlink(tmpl);
-        return 0;
-    }
-    strcpy(path, tmpl);
-
-    *fd_out = fd;
-    *path_out = path;
-    return 1;
-#else
-    (void) size;
-    (void) fd_out;
-    (void) path_out;
-    return 0;
-#endif
-}
-
 static ERTS_INLINE void *
 os_mmap(ErtsMemMapper *mm, void *hint_ptr, UWord size)
 {
-#if HAVE_MMAP
-    void *res;
-    int fd;
-    char *path = NULL;
-
-    if (!erts_mmap_prepare_file(size, &fd, &path)) {
-        return os_mmap_raw(mm, hint_ptr, size, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS);
-    }
-
-    res = os_mmap_raw(mm, hint_ptr, size, fd, ERTS_MMAP_FLAGS);
-    if (!res) {
-        close(fd);
-        unlink(path);
-        free(path);
-        return os_mmap_raw(mm, hint_ptr, size, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS);
-    }
-    close(fd);
-    erts_mmap_file_record_add(mm, res, size, path);
-    return res;
-#elif HAVE_VIRTUALALLOC
-    return os_mmap_raw(mm, hint_ptr, size, -1, 0);
-#else
-#  error "missing mmap() or similar"
-#endif
+    return os_mmap_raw(mm, hint_ptr, size, ERTS_MMAP_FD_FOR_MM(mm), ERTS_MMAP_FLAGS);
 }
 
 static ERTS_INLINE void
 os_munmap(ErtsMemMapper *mm, void *ptr, UWord size)
 {
+    (void) mm;
     os_munmap_raw(ptr, size);
-    erts_mmap_file_record_remove_exact(mm, ptr, size);
 }
 
 #define ALIGN_UP(x, a) ((void*)((((UWord)(x)) + ((a) - 1)) & ~((a) - 1)))
@@ -1662,71 +1427,7 @@ os_mmap_aligned_raw(ErtsMemMapper *mm, UWord size, UWord alignment);
 static ERTS_INLINE void *
 os_mmap_aligned(ErtsMemMapper *mm, UWord size, UWord alignment)
 {
-    char *result;
-#ifdef MAP_ALIGN
-    int fd;
-    char *path = NULL;
-
-    /*
-     * On an operating systems that support MAP_ALIGN (SunOS >=5.9) we
-     * can directly ask mmap(2) to align the virtual memory mapping.
-     */
-    if (!erts_mmap_prepare_file(size, &fd, &path)) {
-        return os_mmap_aligned_raw(mm, size, alignment);
-    }
-    result = os_mmap_raw(mm, (void *) alignment, size, fd, ERTS_MMAP_FLAGS|MAP_ALIGN);
-    if (!result) {
-        close(fd);
-        unlink(path);
-        free(path);
-        return os_mmap_aligned_raw(mm, size, alignment);
-    }
-    close(fd);
-    erts_mmap_file_record_add(mm, result, size, path);
-#else
-    UWord diff;
-    int fd;
-    char *path = NULL;
-    void *raw;
-    UWord raw_size = size + alignment;
-
-    ASSERT((size % sys_page_size) == 0);
-    ASSERT((alignment % sys_page_size) == 0);
-
-    if (!erts_mmap_prepare_file(raw_size, &fd, &path)) {
-        return os_mmap_aligned_raw(mm, size, alignment);
-    }
-    raw = os_mmap_raw(mm, NULL, raw_size, fd, ERTS_MMAP_FLAGS);
-    if (!raw) {
-        close(fd);
-        unlink(path);
-        free(path);
-        return os_mmap_aligned_raw(mm, size, alignment);
-    }
-    result = (char *) raw;
-
-    diff = (char *)ALIGN_UP(result, alignment) - result;
-
-    /*
-     * Unmap any extra pages at the beginning of the allocation.  If
-     * the allocation ended up being aligned, there will be nothing to
-     * unmap.
-     */
-    if (diff != 0) {
-        os_munmap_raw(result, diff);
-        result += diff;
-    }
-
-    /*
-     * Unmap extra pages at the end of the allocation.  There must
-     * always be at least one.
-     */
-    os_munmap_raw(result + size, alignment - diff);
-    close(fd);
-    erts_mmap_file_record_add(mm, result, size, path);
-#endif
-
-    return result;
+    return os_mmap_aligned_raw(mm, size, alignment);
 }
 
 static ERTS_INLINE void *
@@ -1784,6 +1485,7 @@ static ERTS_INLINE void *
 os_mremap(ErtsMemMapper *mm, void *ptr, UWord old_size, UWord new_size)
 {
     void *new_seg;
+    (void) mm;
 #if HAVE_MREMAP
     new_seg = mremap(ptr, (size_t) old_size,
 #  if defined(__NetBSD__)
@@ -1792,7 +1494,6 @@ os_mremap(ErtsMemMapper *mm, void *ptr, UWord old_size, UWord new_size)
 		     (size_t) new_size, ERTS_MREMAP_FLAGS);
     if (new_seg == (void *) MAP_FAILED)
 	return NULL;
-    erts_mmap_file_record_resize(mm, ptr, old_size, new_seg, new_size);
     return new_seg;
 #else
 #  error "missing mremap() or similar"
@@ -2332,7 +2033,6 @@ erts_mremap(ErtsMemMapper* mm,
 	    um_sz = (UWord) ((((char *) ptr) + old_size) - (char *) new_ptr); 
 	    ERTS_MMAP_SIZE_OS_DEC(um_sz);
 	    os_munmap(mm, new_ptr, um_sz);
-	    erts_mmap_file_record_resize(mm, ptr, old_size, ptr, asize);
 	    ERTS_MREMAP_OP_LCK(ptr, ptr, old_size, *sizep, asize);
 	    *sizep = asize;
 	    return ptr;
@@ -2617,7 +2317,6 @@ erts_mmap_init(ErtsMemMapper* mm, ErtsMMapInit *init)
     mm->supercarrier = 0;
     mm->reserve_physical = reserve_noop;
     mm->unreserve_physical = unreserve_noop;
-    mm->file_maps = NULL;
 
 #if HAVE_MMAP && !defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
     mm->mmap_fd = open("/dev/zero", O_RDWR);
