@@ -166,6 +166,12 @@ erts_mmap_record_option_replay(const char *path)
 }
 
 int
+erts_mmap_record_option_record_enabled(void)
+{
+    return record_enabled;
+}
+
+int
 erts_mmap_record_option_enabled(void)
 {
     return record_enabled || replay_enabled;

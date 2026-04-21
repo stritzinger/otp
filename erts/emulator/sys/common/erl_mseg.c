@@ -267,7 +267,7 @@ mseg_create(ErtsMsegAllctr_t *ma, Uint flags, UWord *sizep)
     if (MSEG_FLG_IS_2POW(flags))
 	mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
-    if (erts_mmap_record_option_enabled()) {
+    if (erts_mmap_record_option_record_enabled()) {
         seg = erts_mmap_record_alloc(sizep, mmap_flags);
     } else {
         seg = erts_mmap(&erts_dflt_mmapper, mmap_flags, sizep);
@@ -291,7 +291,7 @@ mseg_destroy(ErtsMsegAllctr_t *ma, Uint flags, void *seg_p, UWord size) {
     if (MSEG_FLG_IS_2POW(flags))
 	 mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
-    if (erts_mmap_record_option_enabled()) {
+    if (erts_mmap_record_option_record_enabled()) {
         erts_mmap_record_free(seg_p, size);
     } else {
         erts_munmap(&erts_dflt_mmapper, mmap_flags, seg_p, size);
@@ -316,7 +316,7 @@ mseg_recreate(ErtsMsegAllctr_t *ma, Uint flags, void *old_seg, UWord old_size, U
     if (MSEG_FLG_IS_2POW(flags))
 	mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
-    if (erts_mmap_record_option_enabled()) {
+    if (erts_mmap_record_option_record_enabled()) {
         new_seg = erts_mmap_record_realloc(old_seg, old_size, sizep, mmap_flags);
     } else {
         new_seg = erts_mremap(&erts_dflt_mmapper, mmap_flags, old_seg, old_size, sizep);
