@@ -123,6 +123,7 @@ typedef struct export_
 #endif
 
 void init_export_table(void);
+void init_export_table_replay(IndexTable *roots, int no_roots);
 void export_info(fmtfn_t, void *);
 
 ERTS_GLB_INLINE void erts_activate_export_trampoline(Export *ep, int code_ix);

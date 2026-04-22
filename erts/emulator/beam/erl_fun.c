@@ -132,7 +132,51 @@ static void fun_stage(ErlFunEntry *entry,
 
 void erts_init_fun_table(void)
 {
+    int i;
+
     fun_staged_init();
+
+    for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
+        erts_alloc_trace_note_alloc("fun_table.index_root",
+                                    &fun_tables[i],
+                                    sizeof(fun_tables[i]));
+    }
+}
+
+void erts_init_fun_table_replay(IndexTable *roots, int no_roots)
+{
+    HashFunctions f;
+    erts_rwmtx_opt_t rwmtx_opt = ERTS_RWMTX_OPT_DEFAULT_INITER;
+    int i;
+
+    ASSERT(roots != NULL);
+    ASSERT(no_roots == ERTS_NUM_CODE_IX);
+    (void) no_roots;
+
+    rwmtx_opt.type = ERTS_RWMTX_TYPE_FREQUENT_READ;
+    rwmtx_opt.lived = ERTS_RWMTX_LONG_LIVED;
+
+    erts_rwmtx_init_opt(&fun_rwmutex,
+                        &rwmtx_opt,
+                        "fun_staging_lock",
+                        NIL,
+                        (ERTS_LOCK_FLAGS_PROPERTY_STATIC |
+                         ERTS_LOCK_FLAGS_CATEGORY_GENERIC));
+
+    erts_atomic_init_nob(&fun_total_entries_bytes, 0);
+
+    f.hash = (H_FUN) fun_staged_hash;
+    f.cmp = (HCMP_FUN) fun_staged_cmp;
+    f.alloc = (HALLOC_FUN) fun_staged_alloc;
+    f.free = (HFREE_FUN) fun_staged_free;
+    f.meta_alloc = (HMALLOC_FUN) erts_alloc;
+    f.meta_free = (HMFREE_FUN) erts_free;
+    f.meta_print = (HMPRINT_FUN) erts_print;
+
+    for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
+        fun_tables[i] = roots[i];
+        fun_tables[i].htable.fun = f;
+    }
 }
 
 void erts_fun_info(fmtfn_t to, void *to_arg)

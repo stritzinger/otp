@@ -58,6 +58,7 @@
 #include "erl_iolist.h"
 #include "erl_debugger.h"
 #include "erl_mmap.h"
+#include "index.h"
 
 #include "jit/beam_asm.h"
 
@@ -242,6 +243,12 @@ void erl_error(const char *fmt, va_list args)
 }
 
 static int early_init(int *argc, char **argv);
+static int restore_struct_roots_for_replay(IndexTable *atom_root,
+                                           IndexTable *module_roots,
+                                           int table_capacity,
+                                           IndexTable *export_roots,
+                                           IndexTable *fun_roots);
+static void debug_replay_roots_sanity(void);
 
 static void
 erl_init(int ncpu,
@@ -281,10 +288,30 @@ erl_init(int ncpu,
     erts_init_debugger();
     erts_init_trace();
     erts_code_ix_init();
-    erts_init_fun_table();
-    init_atom_table();
-    init_export_table();
-    init_module_table();
+    if (erts_mmap_record_option_replay_enabled()) {
+        IndexTable atom_root;
+        IndexTable module_roots[ERTS_NUM_CODE_IX];
+        IndexTable export_roots[ERTS_NUM_CODE_IX];
+        IndexTable fun_roots[ERTS_NUM_CODE_IX];
+        if (!restore_struct_roots_for_replay(&atom_root,
+                                             module_roots,
+                                             ERTS_NUM_CODE_IX,
+                                             export_roots,
+                                             fun_roots)) {
+            erts_exit(ERTS_ABORT_EXIT,
+                      "failed to restore replay root structures from struct-root-dumps\n");
+        }
+        erts_init_fun_table_replay(fun_roots, ERTS_NUM_CODE_IX);
+        init_atom_table_replay(&atom_root);
+        init_module_table_replay(module_roots, ERTS_NUM_CODE_IX);
+        init_export_table_replay(export_roots, ERTS_NUM_CODE_IX);
+        debug_replay_roots_sanity();
+    } else {
+        erts_init_fun_table();
+        init_atom_table();
+        init_module_table();
+        init_export_table();
+    }
     init_register_table();
     init_message();
 #ifdef BEAMASM
@@ -335,11 +362,37 @@ erl_spawn_system_process(Process* parent, Eterm mod, Eterm func, Eterm args,
 {
     Eterm res;
     int arity;
+    ErtsCodePtr fn_active;
+    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
 
     ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN & erts_proc_lc_my_proc_locks(parent));
     arity = erts_list_length(args);
+    fn_active = erts_find_function(mod, func, arity, erts_active_code_ix());
 
-    if (erts_find_function(mod, func, arity, erts_active_code_ix()) == NULL) {
+    if (dbg && dbg[0] != '0') {
+        ErtsCodePtr fn_staging = erts_find_function(mod, func, arity, erts_staging_code_ix());
+        Module *mod_active = erts_get_module(mod, erts_active_code_ix());
+        Module *mod_staging = erts_get_module(mod, erts_staging_code_ix());
+        erts_fprintf(stderr,
+                     "replay_root_debug: spawn_lookup mod=%T func=%T arity=%d active_ix=%u staging_ix=%u fn_active=%p fn_staging=%p mod_active=%p mod_staging=%p\n",
+                     mod, func, arity,
+                     (unsigned int) erts_active_code_ix(),
+                     (unsigned int) erts_staging_code_ix(),
+                     (void *) fn_active, (void *) fn_staging,
+                     (void *) mod_active, (void *) mod_staging);
+    }
+
+    if (fn_active == NULL) {
+        if (dbg && dbg[0] != '0') {
+            erts_fprintf(stderr,
+                         "replay_root_debug: no_function mod_raw=%p func_raw=%p mod_is_atom=%d func_is_atom=%d arity=%d\n",
+                         (void *) (UWord) mod, (void *) (UWord) func,
+                         is_atom(mod) ? 1 : 0, is_atom(func) ? 1 : 0, arity);
+            erts_fprintf(stderr,
+                         "replay_root_debug: atom_consts am_erl_init=%p is_atom=%d am_start=%p is_atom=%d\n",
+                         (void *) (UWord) am_erl_init, is_atom(am_erl_init) ? 1 : 0,
+                         (void *) (UWord) am_start, is_atom(am_start) ? 1 : 0);
+        }
 	erts_exit(ERTS_ERROR_EXIT, "No function %T:%T/%i\n", mod, func, arity);
     }
 
@@ -348,6 +401,304 @@ erl_spawn_system_process(Process* parent, Eterm mod, Eterm func, Eterm args,
     res = erl_create_process(parent, mod, func, args, so);
 
     return res;
+}
+
+static int
+restore_struct_roots_for_replay(IndexTable *atom_root,
+                                IndexTable *module_roots,
+                                int table_capacity,
+                                IndexTable *export_roots,
+                                IndexTable *fun_roots)
+{
+    const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+    char dir_buf[512];
+    char manifest_path[1024];
+    FILE *mf = NULL;
+    char line[1024];
+    int module_ix = 0;
+    int export_ix = 0;
+    int fun_ix = 0;
+    int have_atom = 0;
+
+    if (!base_dir || base_dir[0] == '\0') {
+        base_dir = "_mmap-records/struct-root-dumps";
+    }
+    erts_snprintf(dir_buf, sizeof(dir_buf), "%s", base_dir);
+    erts_snprintf(manifest_path, sizeof(manifest_path), "%s/roots.csv", dir_buf);
+
+    mf = fopen(manifest_path, "r");
+    if (!mf) {
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), mf) != NULL) {
+        char *p1, *p2, *p3, *p4;
+        char *tag, *szs, *file;
+        unsigned long sz;
+        char file_path[1024];
+        FILE *bf;
+        IndexTable *dst = NULL;
+
+        if (line[0] == '\0' || line[0] == '\n' || line[0] == '#'
+            || !isdigit((unsigned char)line[0])) {
+            continue;
+        }
+
+        p1 = strchr(line, ',');
+        if (!p1) continue;
+        p2 = strchr(p1 + 1, ',');
+        if (!p2) continue;
+        p3 = strchr(p2 + 1, ',');
+        if (!p3) continue;
+        p4 = strchr(p3 + 1, ',');
+        if (!p4) continue;
+
+        tag = p1 + 1;
+        *p2 = '\0';
+        szs = p3 + 1;
+        *p4 = '\0';
+        file = p4 + 1;
+        file[strcspn(file, "\r\n")] = '\0';
+
+        sz = strtoul(szs, NULL, 10);
+        if (sz != sizeof(IndexTable)) {
+            continue;
+        }
+
+        if (strcmp(tag, "atom_table.index_root") == 0) {
+            dst = atom_root;
+            have_atom = 1;
+        } else if (strcmp(tag, "module_table.index_root") == 0) {
+            if (module_ix < table_capacity) {
+                dst = &module_roots[module_ix++];
+            }
+        } else if (strcmp(tag, "export_table.index_root") == 0) {
+            if (export_ix < table_capacity) {
+                dst = &export_roots[export_ix++];
+            }
+        } else if (strcmp(tag, "fun_table.index_root") == 0) {
+            if (fun_ix < table_capacity) {
+                dst = &fun_roots[fun_ix++];
+            }
+        } else {
+            continue;
+        }
+
+        erts_snprintf(file_path, sizeof(file_path), "%s/%s", dir_buf, file);
+        bf = fopen(file_path, "rb");
+        if (!bf) {
+            fclose(mf);
+            return 0;
+        }
+
+        if (dst) {
+            if (fread((void *) dst, 1, sizeof(IndexTable), bf)
+                != sizeof(IndexTable)) {
+                fclose(bf);
+                fclose(mf);
+                return 0;
+            }
+        } else {
+            /* overflow: consume file and ignore */
+            IndexTable tmp;
+            size_t rr = fread((void *)&tmp, 1, sizeof(IndexTable), bf);
+            (void) rr;
+        }
+
+        fclose(bf);
+    }
+
+    fclose(mf);
+    return have_atom
+        && module_ix == table_capacity
+        && export_ix == table_capacity
+        && fun_ix == table_capacity;
+}
+
+static void
+debug_replay_roots_sanity(void)
+{
+    int i, samples, pre_i;
+    Eterm atom_term;
+    int atom_ok, module_entries;
+    Module *m = NULL;
+    Eterm mod_atom = THE_NON_VALUE;
+    const Preload *preload;
+    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
+    int enabled = !dbg || dbg[0] != '0';
+
+    if (!enabled) {
+        return;
+    }
+
+    erts_fprintf(stderr,
+                 "replay_root_debug: atom_table entries=%d size=%d limit=%d seg_table=%p hash_bucket=%p\n",
+                 erts_atom_table.entries,
+                 erts_atom_table.size,
+                 erts_atom_table.limit,
+                 (void *) erts_atom_table.seg_table,
+                 (void *) erts_atom_table.htable.bucket);
+    atom_table_replay_debug_dump();
+    module_table_replay_debug_dump();
+
+    atom_ok = 0;
+    if (erts_atom_table.htable.fun.hash
+        && erts_atom_table.htable.fun.cmp
+        && erts_atom_table.htable.fun.alloc) {
+        atom_ok = erts_atom_get((const char *) "erts_code_purger",
+                                sizeof("erts_code_purger") - 1,
+                                &atom_term,
+                                ERTS_ATOM_ENC_7BIT_ASCII);
+    }
+    erts_fprintf(stderr,
+                 "replay_root_debug: atom_lookup(erts_code_purger)=%d term=%T\n",
+                 atom_ok, atom_term);
+
+    module_entries = module_code_size(erts_active_code_ix());
+    erts_fprintf(stderr,
+                 "replay_root_debug: module_table active_entries=%d\n",
+                 module_entries);
+
+    if (erts_atom_get((const char *) "erts_code_purger",
+                      sizeof("erts_code_purger") - 1,
+                      &mod_atom,
+                      ERTS_ATOM_ENC_7BIT_ASCII)) {
+        m = erts_get_module(mod_atom, erts_active_code_ix());
+    }
+    erts_fprintf(stderr,
+                 "replay_root_debug: module_lookup(erts_code_purger)=%p\n",
+                 (void *) m);
+
+    samples = erts_atom_table.entries < 32 ? erts_atom_table.entries : 32;
+    for (i = 0; i < samples; i++) {
+        Atom *a = (Atom *) erts_index_lookup(&erts_atom_table, i);
+        if (!a) {
+            erts_fprintf(stderr, "replay_root_debug: atom_slot[%d]=NULL\n", i);
+            continue;
+        }
+        erts_fprintf(stderr,
+                     "replay_root_debug: atom_slot[%d]=%p slot.index=%d len=%d ord0=%d bin=%p name_ptr=%p\n",
+                     i, (void *) a, a->slot.index, (int) a->len, a->ord0,
+                     (void *) (UWord) a->u.bin,
+                     (void *) erts_atom_get_name(a));
+    }
+
+    atom_replay_debug_lookup("erts_code_purger");
+    atom_replay_debug_lookup("erl_init");
+    atom_replay_debug_lookup("start");
+    atom_replay_debug_lookup("atomics");
+
+    preload = sys_preloaded();
+    pre_i = 0;
+    while (preload && preload[pre_i].name && pre_i < 2) {
+        const char *name = preload[pre_i].name;
+        Eterm aterm = THE_NON_VALUE;
+        Module *pm = NULL;
+        int ok = erts_atom_get((const char *) name,
+                               sys_strlen(name),
+                               &aterm,
+                               ERTS_ATOM_ENC_LATIN1);
+        if (ok) {
+            pm = erts_get_module(aterm, erts_active_code_ix());
+        }
+        erts_fprintf(stderr,
+                     "replay_root_debug: preloaded[%d]=%s atom_ok=%d module=%p\n",
+                     pre_i, name, ok, (void *) pm);
+        pre_i++;
+    }
+
+    {
+        Eterm t = THE_NON_VALUE;
+        int ok;
+        ok = erts_atom_get((const char *) "start",
+                           sizeof("start") - 1,
+                           &t,
+                           ERTS_ATOM_ENC_7BIT_ASCII);
+        erts_fprintf(stderr,
+                     "replay_root_debug: const_check name=start ok=%d parsed=%p am_start=%p equal=%d\n",
+                     ok, (void *) (UWord) t, (void *) (UWord) am_start,
+                     (ok && t == am_start) ? 1 : 0);
+
+        ok = erts_atom_get((const char *) "erl_init",
+                           sizeof("erl_init") - 1,
+                           &t,
+                           ERTS_ATOM_ENC_7BIT_ASCII);
+        erts_fprintf(stderr,
+                     "replay_root_debug: const_check name=erl_init ok=%d parsed=%p am_erl_init=%p equal=%d\n",
+                     ok, (void *) (UWord) t, (void *) (UWord) am_erl_init,
+                     (ok && t == am_erl_init) ? 1 : 0);
+
+        ok = erts_atom_get((const char *) "erlang",
+                           sizeof("erlang") - 1,
+                           &t,
+                           ERTS_ATOM_ENC_7BIT_ASCII);
+        erts_fprintf(stderr,
+                     "replay_root_debug: const_check name=erlang ok=%d parsed=%p am_erlang=%p equal=%d\n",
+                     ok, (void *) (UWord) t, (void *) (UWord) am_erlang,
+                     (ok && t == am_erlang) ? 1 : 0);
+    }
+}
+
+static void
+validate_replay_module_tables(void)
+{
+    const Preload *preload;
+    int i;
+    Eterm mod_atom = THE_NON_VALUE;
+    Module *m = NULL;
+    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
+    int enabled = !dbg || dbg[0] != '0';
+
+    preload = sys_preloaded();
+    if (!preload) {
+        erts_exit(ERTS_ABORT_EXIT,
+                  "replay validation failed: sys_preloaded() returned NULL\n");
+    }
+
+    i = 0;
+    while (preload[i].name) {
+        const char *name = preload[i].name;
+        int ok = erts_atom_get(name,
+                               sys_strlen(name),
+                               &mod_atom,
+                               ERTS_ATOM_ENC_LATIN1);
+        if (!ok) {
+            erts_exit(ERTS_ABORT_EXIT,
+                      "replay validation failed: atom for preloaded module '%s' not found in restored atom table\n",
+                      name);
+        }
+
+        m = erts_get_module(mod_atom, erts_active_code_ix());
+        if (!m) {
+            erts_exit(ERTS_ABORT_EXIT,
+                      "replay validation failed: module '%s' not found in active module table\n",
+                      name);
+        }
+
+        if (!m->curr.code_hdr || m->curr.code_length <= 0) {
+            erts_exit(ERTS_ABORT_EXIT,
+                      "replay validation failed: module '%s' has invalid current code (code_hdr=%p code_length=%d)\n",
+                      name, (void *) m->curr.code_hdr, m->curr.code_length);
+        }
+
+        if (enabled && i < 20) {
+            erts_fprintf(stderr,
+                         "replay_root_debug: replay_validate preloaded[%d]=%s module=%p code_hdr=%p code_len=%d\n",
+                         i, name, (void *) m, (void *) m->curr.code_hdr, m->curr.code_length);
+        }
+        i++;
+    }
+
+    if (!erts_find_function(am_erl_init, am_start, 2, erts_active_code_ix())) {
+        erts_exit(ERTS_ABORT_EXIT,
+                  "replay validation failed: function erl_init:start/2 not found in active code index\n");
+    }
+
+    if (enabled) {
+        erts_fprintf(stderr,
+                     "replay_root_debug: replay_validate success preloaded_modules=%d erl_init:start/2=ok\n",
+                     i);
+    }
 }
 
 static Eterm
@@ -360,6 +711,7 @@ erl_first_process_otp(char* mod_name, int argc, char** argv)
     Process parent;
     ErlSpawnOpts so;
     Eterm boot_mod;
+    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
 
     /*
      * We need a dummy parent process to be able to call erl_create_process().
@@ -382,6 +734,12 @@ erl_first_process_otp(char* mod_name, int argc, char** argv)
     }
     boot_mod = erts_atom_put((byte *) mod_name, sys_strlen(mod_name),
                              ERTS_ATOM_ENC_LATIN1, 1);
+    if (dbg && dbg[0] != '0') {
+        erts_fprintf(stderr,
+                     "replay_root_debug: first_process boot_mod=%T boot_mod_raw=%p argc=%d am_erl_init=%p am_start=%p\n",
+                     boot_mod, (void *) (UWord) boot_mod, argc,
+                     (void *) (UWord) am_erl_init, (void *) (UWord) am_start);
+    }
     args = CONS(hp, args, NIL);
     hp += 2;
     args = CONS(hp, boot_mod, args);
@@ -402,10 +760,16 @@ erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int p
     Process *parent;
     ErlSpawnOpts so;
     Eterm mod, res;
+    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
 
     parent = erts_pid2proc(NULL, 0, parent_pid, ERTS_PROC_LOCK_MAIN);
     mod = erts_atom_put((byte *) modname, sys_strlen(modname),
                         ERTS_ATOM_ENC_LATIN1, 1);
+    if (dbg && dbg[0] != '0') {
+        erts_fprintf(stderr,
+                     "replay_root_debug: system_process modname=%s mod=%T parent=%T off_heap=%d prio=%d\n",
+                     modname, mod, parent_pid, off_heap_msgq, prio);
+    }
 
     ERTS_SET_DEFAULT_SPAWN_OPTS(&so);
 
@@ -2560,7 +2924,18 @@ erl_start(int argc, char **argv)
 	     node_tab_delete_delay,
 	     db_spin_count);
 
-    load_preloaded();
+    if (erts_mmap_record_option_replay_enabled()) {
+        validate_replay_module_tables();
+        {
+            char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
+            if (!dbg || dbg[0] != '0') {
+                erts_fprintf(stderr,
+                             "replay_root_debug: skipping load_preloaded() in replay mode after validation\n");
+            }
+        }
+    } else {
+        load_preloaded();
+    }
     erts_end_staging_code_ix();
     erts_commit_staging_code_ix();
 

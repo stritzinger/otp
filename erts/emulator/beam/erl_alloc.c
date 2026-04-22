@@ -276,7 +276,9 @@ erts_alloc_struct_should_snapshot(const char *tag)
 {
     return tag
         && (strcmp(tag, "atom_table.index_root") == 0
-            || strcmp(tag, "module_table.index_root") == 0);
+            || strcmp(tag, "module_table.index_root") == 0
+            || strcmp(tag, "export_table.index_root") == 0
+            || strcmp(tag, "fun_table.index_root") == 0);
 }
 
 static void
@@ -322,9 +324,7 @@ erts_alloc_struct_dump_snapshots_on_exit(void)
 
     for (i = 0; i < erts_alloc_struct_snapshot_count; i++) {
         ErtsAllocStructSnapshot *snap = &erts_alloc_struct_snapshots[i];
-        const char *name = (strcmp(snap->tag, "atom_table.index_root") == 0)
-            ? "atom_table.index_root"
-            : "module_table.index_root";
+        const char *name = snap->tag;
         len = erts_snprintf(path, sizeof(path), "%s/%02d.%s.bin",
                             erts_alloc_struct_snapshot_dir, i, name);
         if (len <= 0 || len >= (int) sizeof(path)) {

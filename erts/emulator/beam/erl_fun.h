@@ -24,6 +24,7 @@
 #define __ERLFUNTABLE_H__
 
 #include "erl_threads.h"
+#include "index.h"
 
 /*
  * Fun entry.
@@ -89,6 +90,7 @@ typedef struct erl_fun_thing {
 #define ERL_FUN_SIZE ((sizeof(ErlFunThing)/sizeof(Eterm)))
 
 void erts_init_fun_table(void);
+void erts_init_fun_table_replay(IndexTable *roots, int no_roots);
 void erts_fun_info(fmtfn_t, void *);
 int erts_fun_table_sz(void);
 int erts_fun_entries_sz(void);
