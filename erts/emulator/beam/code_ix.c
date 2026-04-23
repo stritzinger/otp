@@ -48,6 +48,33 @@ erts_atomic32_t outstanding_blocking_code_barriers;
 erts_atomic32_t the_active_code_index;
 erts_atomic32_t the_staging_code_index;
 
+/*
+ * Plain-int32 shadow of the active/staging code indices, registered as
+ * "code_ix.root" so the struct-root-dump/replay pipeline can save and
+ * restore them. The atomic variables themselves are not directly
+ * snapshotted because their in-memory representation is backend-specific.
+ *
+ * Layout: [0] = active, [1] = staging.
+ *
+ * Updated whenever the atomics change (init / commit).
+ */
+int32_t erts_code_ix_root[2] = {0, 0};
+
+static ERTS_INLINE void update_code_ix_root(void)
+{
+    erts_code_ix_root[0] = (int32_t) erts_atomic32_read_nob(&the_active_code_index);
+    erts_code_ix_root[1] = (int32_t) erts_atomic32_read_nob(&the_staging_code_index);
+}
+
+void erts_code_ix_apply_replay_root(void)
+{
+    /* Restore atomic indices from the snapshotted shadow. Must be called
+     * after the shadow has been populated from the dump (in replay mode),
+     * but before any code that depends on the indices runs. */
+    erts_atomic32_set_nob(&the_active_code_index, (erts_aint32_t) erts_code_ix_root[0]);
+    erts_atomic32_set_nob(&the_staging_code_index, (erts_aint32_t) erts_code_ix_root[1]);
+}
+
 struct code_permission {
     erts_mtx_t lock;
 
@@ -84,6 +111,10 @@ void erts_code_ix_init(void)
     erts_atomic32_init_nob(&outstanding_blocking_code_barriers, 0);
     erts_atomic32_init_nob(&the_active_code_index, 0);
     erts_atomic32_init_nob(&the_staging_code_index, 0);
+    update_code_ix_root();
+    erts_alloc_trace_note_alloc("code_ix.root",
+                                erts_code_ix_root,
+                                sizeof(erts_code_ix_root));
 
     erts_mtx_init(&code_mod_permission.lock,
         "code_mod_permission", NIL,
@@ -136,6 +167,7 @@ void erts_commit_staging_code_ix(void)
         erts_atomic32_set_nob(&the_active_code_index, ix);
         ix = (ix + 1) % ERTS_NUM_CODE_IX;
         erts_atomic32_set_nob(&the_staging_code_index, ix);
+        update_code_ix_root();
     }
     fun_staged_write_unlock();
     export_staged_write_unlock();

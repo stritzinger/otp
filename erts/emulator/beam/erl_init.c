@@ -305,6 +305,13 @@ erl_init(int ncpu,
         init_atom_table_replay(&atom_root);
         init_module_table_replay(module_roots, ERTS_NUM_CODE_IX);
         init_export_table_replay(export_roots, ERTS_NUM_CODE_IX);
+        /*
+         * Restore the active/staging code indices that were in effect at
+         * record time. Must be done after the index tables have been
+         * populated from the snapshot but before any code path uses
+         * erts_active_code_ix() to look up code.
+         */
+        erts_code_ix_apply_replay_root();
         debug_replay_roots_sanity();
     } else {
         erts_init_fun_table();
@@ -461,25 +468,43 @@ restore_struct_roots_for_replay(IndexTable *atom_root,
         file[strcspn(file, "\r\n")] = '\0';
 
         sz = strtoul(szs, NULL, 10);
-        if (sz != sizeof(IndexTable)) {
-            continue;
-        }
 
         if (strcmp(tag, "atom_table.index_root") == 0) {
+            if (sz != sizeof(IndexTable)) { continue; }
             dst = atom_root;
             have_atom = 1;
         } else if (strcmp(tag, "module_table.index_root") == 0) {
+            if (sz != sizeof(IndexTable)) { continue; }
             if (module_ix < table_capacity) {
                 dst = &module_roots[module_ix++];
             }
         } else if (strcmp(tag, "export_table.index_root") == 0) {
+            if (sz != sizeof(IndexTable)) { continue; }
             if (export_ix < table_capacity) {
                 dst = &export_roots[export_ix++];
             }
         } else if (strcmp(tag, "fun_table.index_root") == 0) {
+            if (sz != sizeof(IndexTable)) { continue; }
             if (fun_ix < table_capacity) {
                 dst = &fun_roots[fun_ix++];
             }
+        } else if (strcmp(tag, "code_ix.root") == 0) {
+            /* Two int32_t: active, staging */
+            if (sz != sizeof(erts_code_ix_root)) { continue; }
+            erts_snprintf(file_path, sizeof(file_path), "%s/%s", dir_buf, file);
+            {
+                FILE *bf2 = fopen(file_path, "rb");
+                if (!bf2) { fclose(mf); return 0; }
+                if (fread((void *) erts_code_ix_root, 1,
+                          sizeof(erts_code_ix_root), bf2)
+                    != sizeof(erts_code_ix_root)) {
+                    fclose(bf2);
+                    fclose(mf);
+                    return 0;
+                }
+                fclose(bf2);
+            }
+            continue;
         } else {
             continue;
         }
@@ -2936,8 +2961,17 @@ erl_start(int argc, char **argv)
     } else {
         load_preloaded();
     }
-    erts_end_staging_code_ix();
-    erts_commit_staging_code_ix();
+    if (!erts_mmap_record_option_replay_enabled()) {
+        /*
+         * Non-replay: end staging for the preloaded modules and commit
+         * them so they become active. In replay mode the active/staging
+         * code indices have already been restored from the snapshot via
+         * erts_code_ix_apply_replay_root(), so we must not advance or
+         * overwrite them here.
+         */
+        erts_end_staging_code_ix();
+        erts_commit_staging_code_ix();
+    }
 
     erts_initialized = 1;
 

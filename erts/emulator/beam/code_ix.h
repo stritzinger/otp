@@ -153,6 +153,18 @@ const ErtsCodeMFA *erts_code_to_codemfa(ErtsCodePtr I);
  */
 void erts_code_ix_init(void);
 
+/* Apply the record/replay snapshot stored in erts_code_ix_root to the
+ * live atomic active/staging code index variables. Used in replay mode
+ * to restore the code index state captured at record time.
+ */
+void erts_code_ix_apply_replay_root(void);
+
+/* Plain-int32 shadow of the active/staging code indices. Registered as
+ * "code_ix.root" in the struct-root-dump pipeline. [0] = active,
+ * [1] = staging. Do not modify directly.
+ */
+extern int32_t erts_code_ix_root[2];
+
 /* Return active code index.
  * Is guaranteed to be valid until the calling BIF returns.
  * To get a consistent view of the code, only one call to erts_active_code_ix()

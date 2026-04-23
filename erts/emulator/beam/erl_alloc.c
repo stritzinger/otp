@@ -278,7 +278,8 @@ erts_alloc_struct_should_snapshot(const char *tag)
         && (strcmp(tag, "atom_table.index_root") == 0
             || strcmp(tag, "module_table.index_root") == 0
             || strcmp(tag, "export_table.index_root") == 0
-            || strcmp(tag, "fun_table.index_root") == 0);
+            || strcmp(tag, "fun_table.index_root") == 0
+            || strcmp(tag, "code_ix.root") == 0);
 }
 
 static void
@@ -364,7 +365,9 @@ erts_alloc_struct_dump_snapshots_on_exit(void)
     erts_alloc_map_load();
     for (i = 0; i < erts_alloc_struct_snapshot_count; i++) {
         ErtsAllocStructSnapshot *snap = &erts_alloc_struct_snapshots[i];
-        if (erts_alloc_struct_should_snapshot(snap->tag)) {
+        if (erts_alloc_struct_should_snapshot(snap->tag)
+            && snap->tag[0] != 'c' /* skip "code_ix.root" (not an IndexTable) */
+            && snap->size >= sizeof(IndexTable)) {
             erts_alloc_struct_walk_index_table(i, snap, wfd);
         }
     }
