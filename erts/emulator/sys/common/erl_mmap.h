@@ -147,6 +147,8 @@ int erts_mmap_name_mapping_global(void *ptr, UWord size, const char *name);
 int erts_mmap_prefix_mapping_name_global(void *ptr, UWord size, const char *prefix);
 int erts_mmap_in_supercarrier(ErtsMemMapper*, void *ptr);
 void erts_mmap_init(ErtsMemMapper*, ErtsMMapInit*);
+int erts_mmap_reserve_physical(ErtsMemMapper *mm, void *ptr, UWord size);
+int erts_mmap_mark_allocated(ErtsMemMapper *mm, void *ptr, UWord size);
 struct erts_mmap_info_struct
 {
     UWord sizes[6];
@@ -167,6 +169,18 @@ int erts_mmap_record_init(void);
 void *erts_mmap_record_alloc(UWord *sizep, Uint32 mmap_flags);
 void erts_mmap_record_free(void *ptr, UWord size);
 void *erts_mmap_record_realloc(void *ptr, UWord old_size, UWord *sizep, Uint32 mmap_flags);
+
+/*
+ * Literal super-carrier snapshot/restore hooks. On record, the literal
+ * allocator tracks (ptr,size) regions here and dumps them on exit; on
+ * replay we re-materialise those bytes at the same addresses.
+ */
+void erts_mmap_record_literal_alloc(void *ptr, UWord size);
+void erts_mmap_record_literal_free(void *ptr, UWord size);
+void erts_mmap_record_literal_realloc(void *old_ptr, UWord old_size,
+                                      void *new_ptr, UWord new_size);
+void erts_mmap_record_literal_dump_on_exit(void);
+int erts_mmap_record_literal_restore(ErtsMemMapper *mm);
 
 #ifdef ERTS_WANT_MEM_MAPPERS
 #  include "erl_alloc_types.h"

@@ -1082,6 +1082,12 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
             if (atexit(erts_alloc_struct_dump_snapshots_on_exit) == 0) {
                 erts_alloc_struct_snapshot_registered = 1;
             }
+            /*
+             * Also dump the literal super-carrier sidecar on exit when
+             * recording. Safe to register unconditionally: the dump
+             * function is a no-op unless record is enabled.
+             */
+            (void) atexit(erts_mmap_record_literal_dump_on_exit);
         }
     }
 
@@ -1169,7 +1175,30 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
     init.mseg.nos = erts_no_schedulers;
     init.mseg.ndai = init.dirty_alloc_insts;
     erts_mseg_init(&init.mseg);
+
+    /*
+     * In replay mode the paired -record run dumped every live region of the
+     * literal super-carrier to a sidecar file. Restore those bytes NOW --
+     * after erts_mseg_init() (which has reserved the 1 GB virtual range via
+     * erts_mmap_init(&erts_literal_mmapper, ...)) but BEFORE the literal
+     * allocator creates its main carrier (which happens in
+     * set_au_allocator(ERTS_ALC_A_LITERAL, ...) below). If we restored after
+     * that point, our memcpy would clobber the allocator's fresh carrier
+     * header and free-tree nodes, corrupting state.
+     */
+#if defined(ARCH_64) && defined(ERTS_HAVE_OS_PHYSICAL_MEMORY_RESERVATION)
+    if (erts_mmap_record_option_replay_enabled()) {
+        if (!erts_mmap_record_literal_restore(&erts_literal_mmapper)) {
+            erts_fprintf(stderr,
+                         "replay_root_debug: failed to restore literal super-carrier "
+                         "snapshot; replay will likely fail\n");
+        } else {
+            erts_fprintf(stderr,
+                         "replay_root_debug: restored literal super-carrier snapshot\n");
+        }
+    }
 #endif
+#endif /* HAVE_ERTS_MSEG */
 
     erts_alcu_init(&init.alloc_util);
     erts_afalc_init();

@@ -1064,6 +1064,16 @@ erts_alcu_mmapper_mseg_alloc(Allctr_t *allctr, Uint *size_p, Uint flags)
     res = erts_mmap(allctr->mseg_mmapper, mmap_flags, &size);
     *size_p = (Uint)size;
     INC_CC(allctr->calls.mseg_alloc);
+    /*
+     * Record the literal super-carrier allocation so it can be dumped and
+     * restored across a record/replay cycle. This is a no-op unless the
+     * record option is enabled AND this mmapper is the literal one; we
+     * key on alloc_no because only ERTS_ALC_A_LITERAL uses this path.
+     */
+    if (res && allctr->alloc_no == ERTS_ALC_A_LITERAL
+        && erts_mmap_record_option_record_enabled()) {
+        erts_mmap_record_literal_alloc(res, (UWord) *size_p);
+    }
     return res;
 }
 
@@ -1076,6 +1086,11 @@ erts_alcu_mmapper_mseg_realloc(Allctr_t *allctr, void *seg,
     res = erts_mremap(allctr->mseg_mmapper, ERTS_MSEG_FLG_NONE, seg, old_size, &new_size);
     *new_size_p = (Uint) new_size;
     INC_CC(allctr->calls.mseg_realloc);
+    if (allctr->alloc_no == ERTS_ALC_A_LITERAL
+        && erts_mmap_record_option_record_enabled()) {
+        erts_mmap_record_literal_realloc(seg, (UWord) old_size,
+                                         res, (UWord) *new_size_p);
+    }
     return res;
 }
 
@@ -1087,6 +1102,10 @@ erts_alcu_mmapper_mseg_dealloc(Allctr_t *allctr, void *seg, Uint size,
     if (flags & ERTS_MSEG_FLG_2POW)
         mmap_flags |= ERTS_MMAPFLG_SUPERALIGNED;
 
+    if (allctr->alloc_no == ERTS_ALC_A_LITERAL
+        && erts_mmap_record_option_record_enabled()) {
+        erts_mmap_record_literal_free(seg, (UWord) size);
+    }
     erts_munmap(allctr->mseg_mmapper, mmap_flags, seg, (UWord)size);
     INC_CC(allctr->calls.mseg_dealloc);
 }

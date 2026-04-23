@@ -2293,6 +2293,52 @@ static void init_atoms(void)
 static void hard_dbg_mseg_init(void);
 #endif
 
+/*
+ * Public helper so code outside this translation unit (in particular the
+ * record/replay sidecar logic in erl_mmap_record.c) can reserve physical
+ * backing on pages inside a super-carrier without needing access to the
+ * full ErtsMemMapper_ struct.
+ */
+int
+erts_mmap_reserve_physical(ErtsMemMapper *mm, void *ptr, UWord size)
+{
+    if (!mm || !mm->reserve_physical) {
+        return 0;
+    }
+    return mm->reserve_physical((char *) ptr, size);
+}
+
+/*
+ * Replay-only: mark the range [ptr, ptr+size) as "already allocated" inside
+ * the super-carrier so that future erts_mmap() calls won't hand it out.
+ *
+ * Strategy: if the range is contiguous with sa.top, just advance sa.top;
+ * otherwise push sa.top to the end of the range (losing the gap between
+ * old sa.top and ptr). This is sufficient for the literal super-carrier
+ * case where all restored regions are at the bottom of the carrier and
+ * superaligned.
+ */
+int
+erts_mmap_mark_allocated(ErtsMemMapper *mm, void *ptr, UWord size)
+{
+    char *start = (char *) ptr;
+    char *end = start + size;
+    if (!mm) {
+        return 0;
+    }
+    if (start < mm->sa.bot || end > mm->sua.bot) {
+        return 0;
+    }
+    /* Round up to superaligned boundary. */
+    end = (char *) ERTS_SUPERALIGNED_CEILING((UWord) end);
+    if (end > mm->sa.top) {
+        UWord inc = (UWord) (end - mm->sa.top);
+        mm->sa.top = end;
+        mm->size.supercarrier.used.total += inc;
+    }
+    return 1;
+}
+
 void
 erts_mmap_init(ErtsMemMapper* mm, ErtsMMapInit *init)
 {

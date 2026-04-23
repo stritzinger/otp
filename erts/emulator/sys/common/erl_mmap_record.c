@@ -58,6 +58,67 @@ static ErtsMMapRecordChunk *record_chunks = NULL;
 static erts_mtx_t record_mtx;
 static int record_mtx_inited = 0;
 
+/*
+ * Literal super-carrier snapshot tracking.
+ *
+ * On 64-bit, the literal allocator has its own mmapper (erts_literal_mmapper)
+ * reserved as a 1 GB virtual range. Allocations inside it do NOT go through
+ * mseg_create() and therefore do NOT reach erts_mmap_record_alloc() above.
+ *
+ * To replay correctly we track every live (ptr, size) region handed out by
+ * erts_alcu_mmapper_mseg_alloc / _realloc, and at process exit we dump those
+ * regions (their raw bytes) to a sidecar file next to the main record arena
+ * (<record-arena>.literals). On replay, after the literal mmapper has been
+ * set up (so the same virtual range is reserved), we read the sidecar and
+ * memcpy bytes back at their original addresses.
+ */
+typedef struct ErtsLiteralSnapshotRegion_ ErtsLiteralSnapshotRegion;
+struct ErtsLiteralSnapshotRegion_ {
+    char *ptr;
+    UWord size;
+    ErtsLiteralSnapshotRegion *next;
+};
+
+static ErtsLiteralSnapshotRegion *literal_regions = NULL;
+static erts_mtx_t literal_mtx;
+static int literal_mtx_inited = 0;
+
+#define ERTS_LITERAL_SNAPSHOT_MAGIC  0x4C49544C55 /* "LITL\0" */
+#define ERTS_LITERAL_SNAPSHOT_VERSION 1
+
+static void
+literal_mtx_ensure_inited(void)
+{
+    if (!literal_mtx_inited) {
+        erts_mtx_init(&literal_mtx, "mmap_record_literal", NIL,
+                      ERTS_LOCK_FLAGS_PROPERTY_STATIC
+                      | ERTS_LOCK_FLAGS_CATEGORY_ALLOCATOR);
+        literal_mtx_inited = 1;
+    }
+}
+
+static const char *
+literal_sidecar_path_for_record(void)
+{
+    static char buf[1024];
+    const char *base;
+    int len;
+
+    if (replay_enabled) {
+        base = replay_path;
+    } else {
+        base = record_path;
+    }
+    if (!base) {
+        return NULL;
+    }
+    len = snprintf(buf, sizeof(buf), "%s.literals", base);
+    if (len <= 0 || len >= (int) sizeof(buf)) {
+        return NULL;
+    }
+    return buf;
+}
+
 static UWord
 record_align(UWord size, Uint32 mmap_flags)
 {
@@ -381,6 +442,275 @@ erts_mmap_record_realloc(void *ptr, UWord old_size, UWord *sizep, Uint32 mmap_fl
     sys_memcpy(new_ptr, ptr, copy_sz);
     erts_mmap_record_free(ptr, old_size);
     return new_ptr;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Literal super-carrier snapshot tracking.
+ * ---------------------------------------------------------------------------
+ */
+
+void
+erts_mmap_record_literal_alloc(void *ptr, UWord size)
+{
+    ErtsLiteralSnapshotRegion *r;
+
+    if (!record_enabled || !ptr || !size) {
+        return;
+    }
+    r = (ErtsLiteralSnapshotRegion *) malloc(sizeof(*r));
+    if (!r) {
+        return;
+    }
+    r->ptr = (char *) ptr;
+    r->size = size;
+
+    literal_mtx_ensure_inited();
+    erts_mtx_lock(&literal_mtx);
+    r->next = literal_regions;
+    literal_regions = r;
+    erts_mtx_unlock(&literal_mtx);
+}
+
+void
+erts_mmap_record_literal_free(void *ptr, UWord size)
+{
+    ErtsLiteralSnapshotRegion **pp;
+    (void) size;
+
+    if (!record_enabled || !ptr) {
+        return;
+    }
+
+    literal_mtx_ensure_inited();
+    erts_mtx_lock(&literal_mtx);
+    for (pp = &literal_regions; *pp; pp = &(*pp)->next) {
+        if ((*pp)->ptr == (char *) ptr) {
+            ErtsLiteralSnapshotRegion *r = *pp;
+            *pp = r->next;
+            free(r);
+            break;
+        }
+    }
+    erts_mtx_unlock(&literal_mtx);
+}
+
+void
+erts_mmap_record_literal_realloc(void *old_ptr, UWord old_size,
+                                 void *new_ptr, UWord new_size)
+{
+    if (!record_enabled) {
+        return;
+    }
+    if (old_ptr) {
+        erts_mmap_record_literal_free(old_ptr, old_size);
+    }
+    if (new_ptr && new_size) {
+        erts_mmap_record_literal_alloc(new_ptr, new_size);
+    }
+}
+
+/*
+ * Sidecar file format (little-endian, host-size UWord):
+ *
+ *   UWord magic      (ERTS_LITERAL_SNAPSHOT_MAGIC)
+ *   UWord version    (ERTS_LITERAL_SNAPSHOT_VERSION)
+ *   UWord count      (number of regions)
+ *   for each region:
+ *       UWord ptr    (virtual address)
+ *       UWord size   (bytes)
+ *       byte  data[size]
+ */
+
+static int
+write_all(int fd, const void *buf, size_t len)
+{
+    const char *p = (const char *) buf;
+    while (len > 0) {
+        ssize_t n = write(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        p += n;
+        len -= (size_t) n;
+    }
+    return 0;
+}
+
+static int
+read_all(int fd, void *buf, size_t len)
+{
+    char *p = (char *) buf;
+    while (len > 0) {
+        ssize_t n = read(fd, p, len);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        p += n;
+        len -= (size_t) n;
+    }
+    return 0;
+}
+
+void
+erts_mmap_record_literal_dump_on_exit(void)
+{
+    const char *path;
+    int fd;
+    UWord header[3];
+    ErtsLiteralSnapshotRegion *r;
+    UWord count = 0;
+
+    if (!record_enabled) {
+        return;
+    }
+    path = literal_sidecar_path_for_record();
+    if (!path) {
+        return;
+    }
+
+    literal_mtx_ensure_inited();
+    erts_mtx_lock(&literal_mtx);
+
+    for (r = literal_regions; r; r = r->next) {
+        count++;
+    }
+
+    fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (fd < 0) {
+        erts_mtx_unlock(&literal_mtx);
+        return;
+    }
+
+    header[0] = (UWord) ERTS_LITERAL_SNAPSHOT_MAGIC;
+    header[1] = (UWord) ERTS_LITERAL_SNAPSHOT_VERSION;
+    header[2] = count;
+    if (write_all(fd, header, sizeof(header)) != 0) {
+        goto done;
+    }
+
+    for (r = literal_regions; r; r = r->next) {
+        UWord rec[2];
+        rec[0] = (UWord) r->ptr;
+        rec[1] = r->size;
+        if (write_all(fd, rec, sizeof(rec)) != 0) {
+            goto done;
+        }
+        if (r->size > 0) {
+            if (write_all(fd, r->ptr, (size_t) r->size) != 0) {
+                goto done;
+            }
+        }
+    }
+
+done:
+    close(fd);
+    erts_mtx_unlock(&literal_mtx);
+}
+
+/*
+ * Restore the literal super-carrier contents from the sidecar file.
+ *
+ * Must be called AFTER erts_mmap_init(&erts_literal_mmapper, ...) so that
+ * the 1 GB virtual range is reserved at the same address that it was during
+ * record (ASLR is required to be off). For each recorded region we:
+ *   1. Ensure physical memory is reserved on the target pages via the
+ *      mmapper's reserve_physical callback.
+ *   2. memcpy the recorded bytes.
+ *
+ * NOTE: After this call the literal mmapper's free-list does NOT know that
+ * these regions are in use. That's OK for replay because replay skips
+ * load_preloaded() and therefore never asks the literal allocator for
+ * fresh memory; existing code already baked-in pointers into these
+ * addresses.
+ */
+int
+erts_mmap_record_literal_restore(ErtsMemMapper *mm)
+{
+    const char *path;
+    int fd;
+    UWord header[3];
+    UWord count, i;
+    int ok = 0;
+    (void) mm;
+
+    if (!replay_enabled) {
+        return 1;
+    }
+    path = literal_sidecar_path_for_record();
+    if (!path) {
+        return 0;
+    }
+
+    fd = open(path, O_RDONLY, 0);
+    if (fd < 0) {
+        /* Missing sidecar: not fatal, but callers likely can't boot. */
+        return 0;
+    }
+
+    if (read_all(fd, header, sizeof(header)) != 0) {
+        goto out;
+    }
+    if (header[0] != (UWord) ERTS_LITERAL_SNAPSHOT_MAGIC
+        || header[1] != (UWord) ERTS_LITERAL_SNAPSHOT_VERSION) {
+        goto out;
+    }
+    count = header[2];
+
+    for (i = 0; i < count; i++) {
+        UWord rec[2];
+        char *ptr;
+        UWord size;
+
+        if (read_all(fd, rec, sizeof(rec)) != 0) {
+            goto out;
+        }
+        ptr = (char *) rec[0];
+        size = rec[1];
+
+        /*
+         * Reserve physical memory on the target region so that the
+         * upcoming writes land on real pages. The super-carrier was
+         * reserved with os_mmap_virtual() and is PROT_NONE until this
+         * call flips the pages to PROT_READ|PROT_WRITE.
+         *
+         * We use erts_mmap_reserve_physical(), a small wrapper in
+         * erl_mmap.c, because ErtsMemMapper is only forward-declared
+         * outside that file.
+         */
+        if (mm) {
+            if (!erts_mmap_reserve_physical(mm, ptr, size)) {
+                goto out;
+            }
+            /*
+             * Tell the mmapper these pages are now in-use so subsequent
+             * erts_mmap() calls (e.g. when the literal allocator grows
+             * its carriers) don't hand them out and overwrite the bytes
+             * we are about to memcpy in.
+             */
+            if (!erts_mmap_mark_allocated(mm, ptr, size)) {
+                fprintf(stderr,
+                        "replay_root_debug: WARNING mark_allocated failed "
+                        "for [%p..+0x%lx); later literal allocations may "
+                        "clobber restored bytes\n",
+                        (void *) ptr, (unsigned long) size);
+            }
+        }
+        if (size > 0) {
+            if (read_all(fd, ptr, (size_t) size) != 0) {
+                goto out;
+            }
+        }
+    }
+    ok = 1;
+
+out:
+    close(fd);
+    return ok;
 }
 
 #endif /* HAVE_ERTS_MMAP */
