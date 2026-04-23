@@ -310,6 +310,16 @@ erts_alloc_struct_dump_snapshots_on_exit(void)
         return;
     }
 
+    /*
+     * Never rewrite the struct-root-dumps while replaying: the directory
+     * is replay INPUT. Overwriting it during replay (and then crashing
+     * mid-execution) would corrupt the snapshot so subsequent replays
+     * see a different, partially-modified state.
+     */
+    if (erts_mmap_record_option_replay_enabled()) {
+        return;
+    }
+
     if (mkdir(erts_alloc_struct_snapshot_dir, 0777) < 0 && errno != EEXIST) {
         return;
     }

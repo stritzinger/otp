@@ -259,8 +259,16 @@ erts_mmap_record_init(void)
     }
 
     if (replay_enabled) {
+        /*
+         * Open the arena read-only during replay so the OS will not let us
+         * mutate the on-disk snapshot, and map it MAP_PRIVATE (copy-on-write)
+         * so the VM can still write into restored memory without propagating
+         * those writes back to the file. Without this, a crash mid-replay
+         * leaves a partially-modified arena on disk and subsequent replays
+         * observe a different (corrupted) snapshot.
+         */
         path = replay_path;
-        record_fd = open(path, O_RDWR, 0);
+        record_fd = open(path, O_RDONLY, 0);
     } else {
         path = record_path;
         if (!path) {
@@ -294,7 +302,7 @@ erts_mmap_record_init(void)
     record_base = (char *) mmap(NULL,
                                 ERTS_RECORD_ARENA_SIZE,
                                 PROT_READ | PROT_WRITE,
-                                MAP_SHARED,
+                                replay_enabled ? MAP_PRIVATE : MAP_SHARED,
                                 record_fd,
                                 0);
     if (record_base == MAP_FAILED) {
