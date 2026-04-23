@@ -502,6 +502,141 @@ init_atom_table(void)
 }
 
 void
+init_atom_table_replay(IndexTable *root)
+{
+    int i;
+    HashFunctions f;
+    erts_rwmtx_opt_t rwmtx_opt = ERTS_RWMTX_OPT_DEFAULT_INITER;
+
+    ASSERT(root != NULL);
+
+    rwmtx_opt.type = ERTS_RWMTX_TYPE_FREQUENT_READ;
+    rwmtx_opt.lived = ERTS_RWMTX_LONG_LIVED;
+
+#ifdef ERTS_ATOM_PUT_OPS_STAT
+    erts_atomic_init_nob(&atom_put_ops, 0);
+#endif
+
+    erts_rwmtx_init_opt(&atom_table_lock, &rwmtx_opt, "atom_tab", NIL,
+        ERTS_LOCK_FLAGS_PROPERTY_STATIC | ERTS_LOCK_FLAGS_CATEGORY_GENERIC);
+
+    erts_atom_table = *root;
+    f.hash = (H_FUN) atom_hash;
+    f.cmp  = (HCMP_FUN) atom_cmp;
+    f.alloc = (HALLOC_FUN) atom_alloc;
+    f.free = (HFREE_FUN) atom_free;
+    f.meta_alloc = (HMALLOC_FUN) erts_alloc;
+    f.meta_free = (HMFREE_FUN) erts_free;
+    f.meta_print = (HMPRINT_FUN) erts_print;
+    erts_atom_table.htable.fun = f;
+
+    atom_space = 0;
+    for (i = 0; i < erts_atom_table.entries; i++) {
+        Atom *a = (Atom *) erts_index_lookup(&erts_atom_table, i);
+        if (a) {
+            atom_space += a->len;
+        }
+    }
+}
+
+void
+atom_table_replay_debug_dump(void)
+{
+    erts_fprintf(stderr,
+                 "replay_root_debug: atom.hash_fun stored=%p expected=%p match=%d\n",
+                 (void *) (UWord) erts_atom_table.htable.fun.hash,
+                 (void *) (UWord) ((H_FUN) atom_hash),
+                 erts_atom_table.htable.fun.hash == (H_FUN) atom_hash);
+    erts_fprintf(stderr,
+                 "replay_root_debug: atom.cmp_fun stored=%p expected=%p match=%d\n",
+                 (void *) (UWord) erts_atom_table.htable.fun.cmp,
+                 (void *) (UWord) ((HCMP_FUN) atom_cmp),
+                 erts_atom_table.htable.fun.cmp == (HCMP_FUN) atom_cmp);
+    erts_fprintf(stderr,
+                 "replay_root_debug: atom.alloc_fun stored=%p expected=%p match=%d\n",
+                 (void *) (UWord) erts_atom_table.htable.fun.alloc,
+                 (void *) (UWord) ((HALLOC_FUN) atom_alloc),
+                 erts_atom_table.htable.fun.alloc == (HALLOC_FUN) atom_alloc);
+}
+
+void
+atom_replay_debug_lookup(const char *name)
+{
+    Atom tmpl;
+    HashValue hv;
+    Uint slot = 0;
+    int i;
+    int found_linear = 0;
+    int found_chain = 0;
+    int chain_len = 0;
+    Atom *linear_atom = NULL;
+    HashBucket *b = NULL;
+
+    if (!name || !erts_atom_table.htable.bucket) {
+        erts_fprintf(stderr,
+                     "replay_root_debug: atom_probe name=%s skipped (invalid table)\n",
+                     name ? name : "<null>");
+        return;
+    }
+
+    tmpl.len = (Sint16) sys_strlen(name);
+    tmpl.u.name = (byte *) name;
+    hv = atom_hash(&tmpl);
+    slot = hash_get_slot(&erts_atom_table.htable, hv);
+    b = erts_atom_table.htable.bucket[slot];
+
+    while (b && chain_len < 100000) {
+        Atom *cand = (Atom *) b;
+        chain_len++;
+        if (cand->len == tmpl.len
+            && sys_memcmp((const void *) erts_atom_get_name(cand),
+                          (const void *) name,
+                          tmpl.len) == 0) {
+            found_chain = 1;
+            break;
+        }
+        b = b->next;
+    }
+
+    for (i = 0; i < erts_atom_table.entries; i++) {
+        Atom *a = (Atom *) erts_index_lookup(&erts_atom_table, i);
+        if (!a) {
+            continue;
+        }
+        if (a->len == tmpl.len
+            && sys_memcmp((const void *) erts_atom_get_name(a),
+                          (const void *) name,
+                          tmpl.len) == 0) {
+            found_linear = 1;
+            linear_atom = a;
+            break;
+        }
+    }
+
+    erts_fprintf(stderr,
+                 "replay_root_debug: atom_probe name=%s hv=%p slot=%lu chain_len=%d found_chain=%d found_linear=%d linear_ix=%d linear_ptr=%p\n",
+                 name,
+                 (void *) (UWord) hv,
+                 (unsigned long) slot,
+                 chain_len,
+                 found_chain,
+                 found_linear,
+                 found_linear ? i : -1,
+                 (void *) linear_atom);
+
+    if (linear_atom) {
+        Uint atom_slot = hash_get_slot(&erts_atom_table.htable,
+                                       linear_atom->slot.bucket.hvalue);
+        erts_fprintf(stderr,
+                     "replay_root_debug: atom_probe_detail name=%s atom_hvalue=%p atom_slot=%lu atom_next=%p\n",
+                     name,
+                     (void *) (UWord) linear_atom->slot.bucket.hvalue,
+                     (unsigned long) atom_slot,
+                     (void *) linear_atom->slot.bucket.next);
+    }
+}
+
+void
 dump_atoms(fmtfn_t to, void *to_arg)
 {
     int i = erts_atom_table.entries;

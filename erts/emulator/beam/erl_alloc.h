@@ -188,6 +188,10 @@ __decl_noreturn void erts_alc_fatal_error(int,int,ErtsAlcType_t,...)
 
 Eterm erts_alloc_set_dyn_param(struct process*, Eterm);
 
+#if defined(ARCH_64) && defined(ERTS_HAVE_OS_PHYSICAL_MEMORY_RESERVATION)
+int erts_global_literal_is_in_range(void *ptr);
+#endif
+
 #undef ERTS_HAVE_IS_IN_LITERAL_RANGE
 #if defined(ARCH_32) || defined(ERTS_HAVE_OS_PHYSICAL_MEMORY_RESERVATION)
 #  define ERTS_HAVE_IS_IN_LITERAL_RANGE
@@ -348,7 +352,8 @@ int erts_is_in_literal_range(void* ptr)
 #elif defined(ARCH_64)
     extern char* erts_literals_start;
     extern UWord erts_literals_size;
-    return ErtsInArea(ptr, erts_literals_start, erts_literals_size);
+    return ErtsInArea(ptr, erts_literals_start, erts_literals_size)
+        || erts_global_literal_is_in_range(ptr);
 #else
 # error No ARCH_xx
 #endif

@@ -50,6 +50,7 @@ Eterm *erts_global_literal_allocate(Uint sz, struct erl_off_heap_header ***ohp);
 /* Registers the pointed-to term as a global literal. Must be called for terms 
  * allocated using erts_global_literal_allocate.*/
 void erts_global_literal_register(Eterm *variable);
+int erts_global_literal_is_in_range(void *ptr);
 
 /* Iterates between global literal areas. Can only be used when crash dumping. 
  * Iteration is started by passing NULL, then successively calling this function

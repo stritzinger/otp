@@ -65,6 +65,21 @@ struct global_literal_chunk {
 /* The size of the global literal term that is being built */
 Uint global_literal_build_size;
 
+int
+erts_global_literal_is_in_range(void *ptr)
+{
+    struct global_literal_chunk *chunk = global_literal_chunk;
+    char *p = (char *) ptr;
+
+    while (chunk) {
+        if (p >= (char *) chunk->area.start && p < (char *) chunk->chunk_end) {
+            return 1;
+        }
+        chunk = chunk->next;
+    }
+    return 0;
+}
+
 
 ErtsLiteralArea *erts_global_literal_iterate_area(ErtsLiteralArea *prev)
 {
@@ -93,21 +108,42 @@ static void expand_shared_global_literal_area(Uint heap_size)
     const size_t size = sizeof(struct global_literal_chunk) +
                         (heap_size - 1) * sizeof(Eterm);
     struct global_literal_chunk *chunk;
+    int use_record_backend = erts_mmap_record_option_record_enabled();
                         
-#ifndef DEBUG 
-    chunk = (struct global_literal_chunk *) erts_alloc(ERTS_ALC_T_LITERAL, size); 
+#ifndef DEBUG
+    if (use_record_backend) {
+        UWord mmap_size = (UWord) size;
+        chunk = (struct global_literal_chunk *)
+            erts_mmap_record_alloc(&mmap_size, 0);
+    } else {
+        chunk = (struct global_literal_chunk *) erts_alloc(ERTS_ALC_T_LITERAL, size);
+    }
 #else
+    if (use_record_backend) {
+        UWord mmap_size = (UWord) size;
+        chunk = (struct global_literal_chunk *)
+            erts_mmap_record_alloc(&mmap_size, 0);
+    } else {
     /* erts_mem_guard requires the memory area to be page aligned. Overallocate
      * and align the address to ensure that is the case. */
     UWord address;
     address = (UWord) erts_alloc(ERTS_ALC_T_LITERAL, size + sys_page_size * 2);
     address = (address + (sys_page_size - 1)) & ~(sys_page_size - 1);
     chunk = (struct global_literal_chunk *) address;
+    }
 
     for (int i = 0; i < heap_size; i++) {
         chunk->area.start[i] = ERTS_HOLE_MARKER;
     }
 #endif
+
+    if (!chunk) {
+        erts_exit(ERTS_ABORT_EXIT,
+                  "global_literals: failed to allocate %bpu bytes for literal chunk (record_mode=%d)\n",
+                  (UWord) size, use_record_backend);
+    }
+
+    erts_alloc_trace_note_alloc("global_literal.chunk", chunk, (UWord) size);
 
     chunk->area.end = &(chunk->area.start[0]);
     chunk->chunk_end = &(chunk->area.start[heap_size]);

@@ -172,6 +172,12 @@ erts_mmap_record_option_record_enabled(void)
 }
 
 int
+erts_mmap_record_option_replay_enabled(void)
+{
+    return replay_enabled;
+}
+
+int
 erts_mmap_record_option_enabled(void)
 {
     return record_enabled || replay_enabled;

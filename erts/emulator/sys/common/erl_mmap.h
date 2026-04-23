@@ -161,6 +161,7 @@ Eterm erts_mmap_info_options(ErtsMemMapper*,
 int erts_mmap_record_option_record(const char *path);
 int erts_mmap_record_option_replay(const char *path);
 int erts_mmap_record_option_record_enabled(void);
+int erts_mmap_record_option_replay_enabled(void);
 int erts_mmap_record_option_enabled(void);
 int erts_mmap_record_init(void);
 void *erts_mmap_record_alloc(UWord *sizep, Uint32 mmap_flags);
