@@ -1004,6 +1004,7 @@ void erts_start_staging_ranges(int num_new);
 void erts_end_staging_ranges(int commit);
 void erts_update_ranges(const BeamCodeHeader* code, Uint size);
 void erts_remove_from_ranges(const BeamCodeHeader* code);
+void erts_ranges_replay_rebuild(void);
 UWord erts_ranges_sz(void);
 void erts_lookup_function_info(FunctionInfo* fi,
                                ErtsCodePtr pc,

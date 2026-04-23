@@ -29,6 +29,7 @@
 #include "global.h"
 #include "beam_code.h"
 #include "erl_unicode.h"
+#include "module.h"
 
 typedef struct {
     ErtsCodePtr start; /* Pointer to start of module. */
@@ -415,4 +416,108 @@ erts_find_next_code_for_line(const BeamCodeHeader* code_hdr,
     }
 
     return lt->func_tab[0][line_index];
+}
+
+/*
+ * Rebuild the per-module PC range table from the already-restored module
+ * table after a record/replay restore. During replay we skip load_preloaded()
+ * (since module table, atom table, export table, fun table, and code pages
+ * have all been restored from the struct-root dumps + mmap arena), which
+ * means erts_update_ranges() was never called. Without ranges,
+ * erts_find_function_from_pc() always returns NULL and any PC-based
+ * introspection (tracing, stack traces, exception handling) sees "unknown"
+ * code, which in turn corrupts VM-level invariants and leads to spurious
+ * crashes (SIGILL via BTI, "Catch not found", etc.).
+ *
+ * We rebuild both code indices directly (bypassing the normal staging dance),
+ * since the restored active/staging indices are already correct and we do
+ * not want to advance them.
+ */
+void
+erts_ranges_replay_rebuild(void)
+{
+    ErtsCodeIndex ix;
+
+    for (ix = 0; ix < ERTS_NUM_CODE_IX; ix++) {
+        int i;
+        int max_modules = module_code_size(ix);
+        Sint count = 0;
+        Range *mp;
+
+        /* Free any previous allocation (in case this is called twice). */
+        if (r[ix].modules) {
+            erts_atomic_add_nob(&mem_used, -r[ix].allocated);
+            erts_free(ERTS_ALC_T_MODULE_REFS, r[ix].modules);
+            r[ix].modules = NULL;
+            r[ix].allocated = 0;
+            r[ix].n = 0;
+        }
+
+        /* Count entries: one per curr instance with code, plus one per old. */
+        for (i = 0; i < max_modules; i++) {
+            Module *modp = module_code(i, ix);
+            if (!modp) {
+                continue;
+            }
+            if (modp->curr.code_hdr && modp->curr.code_length > 0) {
+                count++;
+            }
+            if (modp->old.code_hdr && modp->old.code_length > 0) {
+                count++;
+            }
+        }
+
+        if (count == 0) {
+            continue;
+        }
+
+        /* Allocate with some slack so future inserts don't immediately
+         * require reallocation (matches the behaviour of
+         * erts_start_staging_ranges). */
+        r[ix].allocated = count + 8;
+        erts_atomic_add_nob(&mem_used, r[ix].allocated);
+        r[ix].modules = (Range *) erts_alloc(ERTS_ALC_T_MODULE_REFS,
+                                             r[ix].allocated * sizeof(Range));
+        mp = r[ix].modules;
+
+        for (i = 0; i < max_modules; i++) {
+            Module *modp = module_code(i, ix);
+            if (!modp) {
+                continue;
+            }
+            if (modp->curr.code_hdr && modp->curr.code_length > 0) {
+                mp->start = (ErtsCodePtr) modp->curr.code_hdr;
+                erts_atomic_init_nob(&mp->end,
+                                     (erts_aint_t)
+                                     (((byte *) modp->curr.code_hdr)
+                                      + modp->curr.code_length));
+                mp++;
+            }
+            if (modp->old.code_hdr && modp->old.code_length > 0) {
+                mp->start = (ErtsCodePtr) modp->old.code_hdr;
+                erts_atomic_init_nob(&mp->end,
+                                     (erts_aint_t)
+                                     (((byte *) modp->old.code_hdr)
+                                      + modp->old.code_length));
+                mp++;
+            }
+        }
+
+        r[ix].n = mp - r[ix].modules;
+        qsort(r[ix].modules, r[ix].n, sizeof(Range),
+              (int (*)(const void *, const void *)) rangecompare);
+        erts_atomic_set_nob(&r[ix].mid,
+                            (erts_aint_t) (r[ix].modules + r[ix].n / 2));
+
+        if (r[ix].allocated > (Sint) erts_dump_num_lit_areas) {
+            erts_dump_num_lit_areas = r[ix].allocated * 2;
+            erts_dump_lit_areas = (ErtsLiteralArea **)
+                erts_realloc(ERTS_ALC_T_CRASH_DUMP,
+                             (void *) erts_dump_lit_areas,
+                             erts_dump_num_lit_areas
+                             * sizeof(ErtsLiteralArea *));
+        }
+
+        CHECK(&r[ix]);
+    }
 }

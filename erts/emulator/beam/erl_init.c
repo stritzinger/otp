@@ -2951,11 +2951,19 @@ erl_start(int argc, char **argv)
 
     if (erts_mmap_record_option_replay_enabled()) {
         validate_replay_module_tables();
+        /*
+         * Rebuild the per-module PC range table from the restored module
+         * table. load_preloaded() (which normally calls erts_update_ranges()
+         * for every loaded module) is skipped in replay mode, so without
+         * this step erts_find_function_from_pc() would return NULL for any
+         * PC, breaking tracing, stack walking, and exception handling.
+         */
+        erts_ranges_replay_rebuild();
         {
             char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
             if (!dbg || dbg[0] != '0') {
                 erts_fprintf(stderr,
-                             "replay_root_debug: skipping load_preloaded() in replay mode after validation\n");
+                             "replay_root_debug: skipping load_preloaded() in replay mode after validation, ranges rebuilt\n");
             }
         }
     } else {
