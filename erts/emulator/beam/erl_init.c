@@ -54,6 +54,7 @@
 #include "erl_osenv.h"
 #include "erl_proc_sig_queue.h"
 #include "beam_load.h"
+#include "beam_catches.h"
 #include "erl_global_literals.h"
 #include "erl_iolist.h"
 #include "erl_debugger.h"
@@ -2959,6 +2960,90 @@ erl_start(int argc, char **argv)
          * PC, breaking tracing, stack walking, and exception handling.
          */
         erts_ranges_replay_rebuild();
+        /*
+         * Restore the beam-catches header array bccix[] from the dump.
+         * beam_catches_init() ran as part of init_emulator() above and
+         * installed a fresh empty table; the restored code still has
+         * make_catch(index) immediates baked in that refer to the
+         * RECORD-time indices, so we must swap the fresh header back to
+         * the recorded one. The per-pool entry tables it points to live
+         * in the long-lived allocator's carriers (mseg → record arena),
+         * so they map back at the same virtual addresses via MAP_PRIVATE
+         * and do not need separate restoration.
+         */
+        {
+            const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+            char dir_buf[512];
+            char manifest_path[1024];
+            FILE *mf;
+            char line[1024];
+            int loaded = 0;
+
+            if (!base_dir || base_dir[0] == '\0') {
+                base_dir = "_mmap-records/struct-root-dumps";
+            }
+            erts_snprintf(dir_buf, sizeof(dir_buf), "%s", base_dir);
+            erts_snprintf(manifest_path, sizeof(manifest_path),
+                          "%s/roots.csv", dir_buf);
+
+            mf = fopen(manifest_path, "r");
+            if (mf) {
+                while (fgets(line, sizeof(line), mf) != NULL) {
+                    char *p1, *p2, *p3, *p4;
+                    char *tag, *szs, *file;
+                    unsigned long sz;
+                    char file_path[1024];
+                    FILE *bf;
+                    UWord bccix_size = erts_beam_catches_bccix_size();
+                    void *buf;
+
+                    if (line[0] == '\0' || line[0] == '\n' || line[0] == '#'
+                        || !isdigit((unsigned char) line[0])) {
+                        continue;
+                    }
+                    p1 = strchr(line, ',');       if (!p1) continue;
+                    p2 = strchr(p1 + 1, ',');     if (!p2) continue;
+                    p3 = strchr(p2 + 1, ',');     if (!p3) continue;
+                    p4 = strchr(p3 + 1, ',');     if (!p4) continue;
+                    tag = p1 + 1; *p2 = '\0';
+                    szs = p3 + 1; *p4 = '\0';
+                    file = p4 + 1;
+                    file[strcspn(file, "\r\n")] = '\0';
+
+                    if (strcmp(tag, "beam_catches.bccix") != 0) continue;
+
+                    sz = strtoul(szs, NULL, 10);
+                    if ((UWord) sz != bccix_size) {
+                        erts_fprintf(stderr,
+                                     "replay_root_debug: bccix size mismatch "
+                                     "dump=%lu expected=%bpu\n",
+                                     sz, bccix_size);
+                        continue;
+                    }
+                    erts_snprintf(file_path, sizeof(file_path),
+                                  "%s/%s", dir_buf, file);
+                    bf = fopen(file_path, "rb");
+                    if (!bf) continue;
+                    buf = erts_alloc(ERTS_ALC_T_TMP, bccix_size);
+                    if (fread(buf, 1, bccix_size, bf) == bccix_size) {
+                        beam_catches_apply_replay_root(buf, bccix_size);
+                        loaded = 1;
+                    }
+                    erts_free(ERTS_ALC_T_TMP, buf);
+                    fclose(bf);
+                    break;
+                }
+                fclose(mf);
+            }
+            {
+                char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
+                if (!dbg || dbg[0] != '0') {
+                    erts_fprintf(stderr,
+                                 "replay_root_debug: bccix restore %s\n",
+                                 loaded ? "OK" : "FAILED");
+                }
+            }
+        }
         {
             char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
             if (!dbg || dbg[0] != '0') {

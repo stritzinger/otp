@@ -56,6 +56,28 @@ struct bc_pool {
 
 static struct bc_pool bccix[ERTS_NUM_CODE_IX];
 
+/*
+ * Expose bccix[] to the struct-root-dump / replay pipeline. The individual
+ * per-pool tables (bccix[i].beam_catches) are allocated via
+ * ERTS_ALC_T_CATCHES → long-lived allocator, whose carriers live in the
+ * default mseg super-carrier, which is already file-backed by the record
+ * arena. So the table *contents* are persisted for free; what needs
+ * explicit snapshotting is this small static header array which holds the
+ * pointers, tabsize, high_mark, and free_list. Without it, every replay
+ * would see a freshly-initialised (empty) bccix[] and the catch indices
+ * baked into restored code would resolve to garbage / NULL and produce
+ * "Catch not found" at the first throw.
+ */
+void *erts_beam_catches_bccix_ptr(void)
+{
+    return (void *) bccix;
+}
+
+UWord erts_beam_catches_bccix_size(void)
+{
+    return sizeof(bccix);
+}
+
 void beam_catches_init(void)
 {
     int i;
@@ -74,6 +96,34 @@ void beam_catches_init(void)
     }
      /* For initial load: */
     IF_DEBUG(bccix[erts_staging_code_ix()].is_staging = 1);
+
+    /*
+     * Register the whole bccix[] as a snapshot root on record, AFTER the
+     * fresh table has been allocated so the snapshot captures the
+     * record-time pointer. On replay, erl_init.c overwrites this array
+     * from the dump before any code runs.
+     */
+    erts_alloc_trace_note_alloc("beam_catches.bccix",
+                                bccix, sizeof(bccix));
+}
+
+/*
+ * Replay-only: replace bccix[] wholesale with the snapshot bytes loaded
+ * from struct-root-dumps/NN.beam_catches.bccix.bin. The pointers inside
+ * refer to addresses in the long-lived allocator's carrier, which the
+ * default mseg super-carrier restores to the same virtual address.
+ *
+ * Leaks the fresh table that beam_catches_init() just allocated; that's
+ * a tiny permanent waste (one 8 KB block) but keeps the replay path
+ * simple and avoids running erts_free on an address the allocator no
+ * longer knows about once we've overwritten its bookkeeping.
+ */
+void beam_catches_apply_replay_root(const void *src, UWord src_size)
+{
+    if (src_size != sizeof(bccix)) {
+        return;
+    }
+    sys_memcpy(bccix, src, sizeof(bccix));
 }
 
 

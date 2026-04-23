@@ -33,6 +33,19 @@
 #define BEAM_CATCHES_NIL	(-1)
 
 void beam_catches_init(void);
+
+/*
+ * Record/replay support. See beam_catches.c for the rationale.
+ *
+ *   erts_beam_catches_bccix_{ptr,size} - accessors used by the
+ *     struct-root dump code to snapshot the static bccix[] array.
+ *   beam_catches_apply_replay_root   - restore bccix[] from the
+ *     previously-dumped bytes during -replay init.
+ */
+void *erts_beam_catches_bccix_ptr(void);
+UWord erts_beam_catches_bccix_size(void);
+void beam_catches_apply_replay_root(const void *src, UWord src_size);
+
 void beam_catches_start_staging(void);
 void beam_catches_end_staging(int commit);
 unsigned beam_catches_cons(ErtsCodePtr cp, unsigned cdr, ErtsCodePtr **);

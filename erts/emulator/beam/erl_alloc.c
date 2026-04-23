@@ -279,7 +279,8 @@ erts_alloc_struct_should_snapshot(const char *tag)
             || strcmp(tag, "module_table.index_root") == 0
             || strcmp(tag, "export_table.index_root") == 0
             || strcmp(tag, "fun_table.index_root") == 0
-            || strcmp(tag, "code_ix.root") == 0);
+            || strcmp(tag, "code_ix.root") == 0
+            || strcmp(tag, "beam_catches.bccix") == 0);
 }
 
 static void
