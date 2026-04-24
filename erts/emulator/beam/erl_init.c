@@ -120,8 +120,8 @@ int erts_backtrace_depth;	/* How many functions to show in a backtrace
 
 erts_atomic32_t erts_max_gen_gcs;
 
-Eterm erts_error_logger_warnings; /* What to map warning logs to, am_error, 
-				     am_info or am_warning, am_error is 
+Eterm erts_error_logger_warnings; /* What to map warning logs to, am_error,
+				     am_info or am_warning, am_error is
 				     the default for BC */
 
 int erts_compat_rel;
@@ -187,15 +187,15 @@ has_prefix(const char *prefix, const char *string)
 }
 
 static char*
-progname(char *fullname) 
+progname(char *fullname)
 {
     int i;
-    
+
     i = sys_strlen(fullname);
     while (i >= 0) {
-	if ((fullname[i] != '/') && (fullname[i] != '\\')) 
+	if ((fullname[i] != '/') && (fullname[i] != '\\'))
 	    i--;
-	else 
+	else
 	    break;
     }
     return fullname+i+1;
@@ -209,11 +209,11 @@ this_rel_num(void)
     if (this_rel < 1) {
 	int i;
 	char this_rel_str[] = ERLANG_OTP_RELEASE;
-	    
+
 	i = 0;
 	while (this_rel_str[i] && !isdigit((int) this_rel_str[i]))
 	    i++;
-	this_rel = atoi(&this_rel_str[i]); 
+	this_rel = atoi(&this_rel_str[i]);
 	if (this_rel < 1)
 	    erts_exit(1, "Unexpected ERLANG_OTP_RELEASE format\n");
     }
@@ -727,6 +727,15 @@ validate_replay_module_tables(void)
     }
 }
 
+/*
+ * Set by erl_first_process_otp() when "-hello" is in the boot argv.
+ * Gates test-only behaviour elsewhere (e.g. using hello:start/0 as the
+ * entry point for the always-alive ERTS system processes so that the
+ * whole VM is a self-contained single-module sandbox). Must stay 0 for
+ * the bootstrap/release boot where OTP expects the real modules.
+ */
+static int use_hello_mode = 0;
+
 static Eterm
 erl_first_process_otp(char* mod_name, int argc, char** argv)
 {
@@ -782,7 +791,7 @@ erl_first_process_otp(char* mod_name, int argc, char** argv)
 
 static Eterm
 erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int prio)
-{ 
+{
     Process *parent;
     ErlSpawnOpts so;
     Eterm mod, res;
@@ -813,7 +822,19 @@ erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int p
     so.max_gen_gcs    = (Uint16) erts_atomic32_read_nob(&erts_max_gen_gcs);
     so.scheduler      = 0;
 
-    res = erl_spawn_system_process(parent, mod, am_start, NIL, &so);
+    /*
+     * In -hello mode, replace every always-alive system process
+     * (erts_code_purger, erts_literal_area_collector, ...) with a dummy
+     * running hello:start/0, which just sits in a receive loop. That
+     * keeps the VM's global pointers (erts_code_purger, etc.) populated
+     * with live PIDs without pulling in the real module code paths that
+     * aren't available in the hello-only sandbox. Outside of -hello mode
+     * we must keep spawning the requested module so the bootstrap and
+     * normal release boots work as before.
+     */
+    res = erl_spawn_system_process(parent,
+                                   mod,//use_hello_mode ? am_hello : mod,
+                                   am_start, NIL, &so);
     ASSERT(is_internal_pid(res));
 
     erts_proc_unlock(parent, ERTS_PROC_LOCK_MAIN);
@@ -892,7 +913,7 @@ get_arg(char* rest, char* next, int* ip)
     return rest;
 }
 
-static void 
+static void
 load_preloaded(void)
 {
     int i;
@@ -1686,7 +1707,7 @@ early_init(int *argc, char **argv) /*
 #ifdef ERTS_ENABLE_LOCK_CHECK
     erts_lc_late_init();
 #endif
-    
+
 #ifdef ERTS_ENABLE_LOCK_COUNT
     erts_lcnt_late_init();
 #endif
@@ -3072,6 +3093,7 @@ erl_start(int argc, char **argv)
     ASSERT(erts_init_process_id != ERTS_INVALID_PID);
 
     {
+<<<<<<< HEAD
 	/*
 	 * System processes that are *always* alive. If they terminate
 	 * they bring the whole VM down.
@@ -3126,6 +3148,62 @@ erl_start(int argc, char **argv)
 	ASSERT(erts_dirty_process_signal_handler_max
 	       && erts_dirty_process_signal_handler_max->common.id == pid);
 	erts_proc_inc_refc(erts_dirty_process_signal_handler_max);
+=======
+        /*
+         * System processes that are *always* alive. If they terminate
+         * they bring the whole VM down.
+         */
+        Eterm pid;
+
+        pid = erl_system_process_otp(erts_init_process_id,
+                                     "erts_code_purger", !0,
+                                     PRIORITY_HIGH);
+        erts_code_purger
+            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
+                                                    internal_pid_index(pid));
+        ASSERT(erts_code_purger && erts_code_purger->common.id == pid);
+        erts_proc_inc_refc(erts_code_purger);
+
+        pid = erl_system_process_otp(erts_init_process_id,
+                                     "erts_literal_area_collector",
+                                     !0, PRIORITY_HIGH);
+        erts_literal_area_collector
+            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
+                                                    internal_pid_index(pid));
+        ASSERT(erts_literal_area_collector
+               && erts_literal_area_collector->common.id == pid);
+        erts_proc_inc_refc(erts_literal_area_collector);
+
+        pid = erl_system_process_otp(erts_init_process_id,
+                                     "erts_dirty_process_signal_handler",
+                                     !0, PRIORITY_NORMAL);
+        erts_dirty_process_signal_handler
+            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
+                                                    internal_pid_index(pid));
+        ASSERT(erts_dirty_process_signal_handler
+               && erts_dirty_process_signal_handler->common.id == pid);
+        erts_proc_inc_refc(erts_dirty_process_signal_handler);
+
+        pid = erl_system_process_otp(erts_init_process_id,
+                                     "erts_dirty_process_signal_handler",
+                                     !0, PRIORITY_HIGH);
+        erts_dirty_process_signal_handler_high
+            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
+                                                    internal_pid_index(pid));
+        ASSERT(erts_dirty_process_signal_handler_high
+               && erts_dirty_process_signal_handler_high->common.id == pid);
+        erts_proc_inc_refc(erts_dirty_process_signal_handler_high);
+
+        pid = erl_system_process_otp(erts_init_process_id,
+                                     "erts_dirty_process_signal_handler",
+                                     !0, PRIORITY_MAX);
+        erts_dirty_process_signal_handler_max
+            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
+                                                    internal_pid_index(pid));
+        ASSERT(erts_dirty_process_signal_handler_max
+               && erts_dirty_process_signal_handler_max->common.id == pid);
+        erts_proc_inc_refc(erts_dirty_process_signal_handler_max);
+>>>>>>> 759b4aa37d (Always launch sys processes)
 
         pid = erl_system_process_otp(erts_init_process_id,
                                      "erts_trace_cleaner", !0,
@@ -3135,7 +3213,10 @@ erl_start(int argc, char **argv)
                                                     internal_pid_index(pid));
         ASSERT(erts_trace_cleaner && erts_trace_cleaner->common.id == pid);
         erts_proc_inc_refc(erts_trace_cleaner);
+<<<<<<< HEAD
 
+=======
+>>>>>>> 759b4aa37d (Always launch sys processes)
     }
 
     erts_start_schedulers();
