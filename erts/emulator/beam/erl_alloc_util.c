@@ -6965,7 +6965,9 @@ erts_alcu_start(Allctr_t *allctr, AllctrInit_t *init)
 
 #if HAVE_ERTS_MSEG
     {
-        int force_mseg = (allctr->alloc_no == ERTS_ALC_A_LONG_LIVED);
+        int force_mseg = (allctr->alloc_no == ERTS_ALC_A_LONG_LIVED
+                          || (allctr->alloc_no == ERTS_ALC_A_BINARY
+                              && erts_mmap_record_option_record_enabled()));
         int force_sys = (allctr->alloc_no == ERTS_ALC_A_SYSTEM
                          || allctr->alloc_no == ERTS_ALC_A_TEMPORARY
                          || allctr->alloc_no == ERTS_ALC_A_DRIVER);
@@ -7008,7 +7010,9 @@ erts_alcu_start(Allctr_t *allctr, AllctrInit_t *init)
 	Block_t *blk;
         Uint create_flags;
 
-        create_flags = (allctr->alloc_no == ERTS_ALC_A_LONG_LIVED
+        create_flags = ((allctr->alloc_no == ERTS_ALC_A_LONG_LIVED
+                         || (allctr->alloc_no == ERTS_ALC_A_BINARY
+                             && erts_mmap_record_option_record_enabled()))
                         ? CFLG_FORCE_MSEG
                         : CFLG_FORCE_SYS_ALLOC);
 
