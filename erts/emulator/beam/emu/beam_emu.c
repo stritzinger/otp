@@ -44,6 +44,7 @@
 #include "dtrace-wrapper.h"
 #include "erl_proc_sig_queue.h"
 #include "beam_common.h"
+#include "erl_mmap.h"
 
 /* #define HARDDEBUG 1 */
 
@@ -642,7 +643,6 @@ static void install_bifs(void) {
         ERTS_ASSERT(entry->arity <= MAX_BIF_ARITY);
 
         ep = erts_export_put(entry->module, entry->name, entry->arity);
-
         ep->info.u.op = BeamOpCodeAddr(op_i_func_info_IaaI);
         ep->info.mfa.module = entry->module;
         ep->info.mfa.function = entry->name;
@@ -658,6 +658,22 @@ static void install_bifs(void) {
 
         /* Set up a hidden export entry so we can trap to this BIF without
          * it being seen when tracing. */
+        erts_init_trap_export(BIF_TRAP_EXPORT(i),
+                              entry->module, entry->name, entry->arity,
+                              entry->f);
+    }
+}
+
+static void replay_install_bifs(void) {
+    int i;
+
+    for (i = 0; i < BIF_SIZE; i++) {
+        BifEntry *entry;
+
+        entry = &bif_table[i];
+
+        ERTS_ASSERT(entry->arity <= MAX_BIF_ARITY);
+
         erts_init_trap_export(BIF_TRAP_EXPORT(i),
                               entry->module, entry->name, entry->arity,
                               entry->f);
@@ -712,7 +728,11 @@ init_emulator_finish(void)
     beam_call_trace_return_[0] = BeamOpCodeAddr(op_i_call_trace_return);
     beam_call_trace_return = (ErtsCodePtr)&beam_call_trace_return_[0];
 
-    install_bifs();
+    if (erts_mmap_record_option_replay_enabled()) {
+        replay_install_bifs();
+    } else {
+        install_bifs();
+    }
 }
 
 int

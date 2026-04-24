@@ -28,6 +28,7 @@ extern "C"
 #include "beam_common.h"
 #include "code_ix.h"
 #include "export.h"
+#include "erl_mmap.h"
 #include "erl_threads.h"
 
 #if defined(__APPLE__)
@@ -131,7 +132,6 @@ static void install_bifs(void) {
         ERTS_ASSERT(entry->arity <= MAX_BIF_ARITY);
 
         ep = erts_export_put(entry->module, entry->name, entry->arity);
-
         sys_memset(&ep->info.u, 0, sizeof(ep->info.u));
         ep->info.mfa.module = entry->module;
         ep->info.mfa.function = entry->name;
@@ -144,6 +144,49 @@ static void install_bifs(void) {
 
         /* Set up a hidden export entry so we can trap to this BIF without
          * it being seen when tracing. */
+        erts_init_trap_export(BIF_TRAP_EXPORT(i),
+                              entry->module,
+                              entry->name,
+                              entry->arity,
+                              (bif_func_type)entry->f);
+    }
+}
+
+static void replay_install_bifs(void) {
+    typedef Eterm (*bif_func_type)(Process *, Eterm *, ErtsCodePtr);
+    int i;
+
+    ASSERT(beam_export_trampoline != NULL);
+    ASSERT(beam_save_calls_export != NULL);
+
+    for (i = 0; i < BIF_SIZE; i++) {
+        BifEntry *entry;
+        const Export *existing;
+        Export *ep;
+
+        entry = &bif_table[i];
+
+        ERTS_ASSERT(entry->arity <= MAX_BIF_ARITY);
+
+        existing = erts_active_export_entry(entry->module,
+                                            entry->name,
+                                            entry->arity);
+        ep = erts_export_put(entry->module, entry->name, entry->arity);
+        ep->bif_number = i;
+
+        if (!existing) {
+            int j;
+
+            sys_memset(&ep->info.u, 0, sizeof(ep->info.u));
+            ep->info.mfa.module = entry->module;
+            ep->info.mfa.function = entry->name;
+            ep->info.mfa.arity = entry->arity;
+
+            for (j = 0; j < ERTS_NUM_CODE_IX; j++) {
+                erts_activate_export_trampoline(ep, j);
+            }
+        }
+
         erts_init_trap_export(BIF_TRAP_EXPORT(i),
                               entry->module,
                               entry->name,
@@ -407,7 +450,11 @@ bool BeamAssemblerCommon::hasCpuFeature(uint32_t featureId) {
 }
 
 void init_emulator(void) {
-    install_bifs();
+    if (erts_mmap_record_option_replay_enabled()) {
+        replay_install_bifs();
+    } else {
+        install_bifs();
+    }
 }
 
 void process_main(ErtsSchedulerData *esdp) {
