@@ -130,6 +130,7 @@ Eterm erts_load_nif(Process *c_p, ErtsCodePtr I, Eterm filename, Eterm args);
 
 void erts_unload_nif(struct erl_module_nif* nif);
 extern void erl_nif_init(void);
+extern void erts_replay_reinit_loaded_static_nifs(void);
 extern void erts_nif_sched_init(ErtsSchedulerData *esdp);
 extern void erts_nif_execute_on_halt(void);
 extern void erts_nif_notify_halt(void);

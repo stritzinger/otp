@@ -33,19 +33,24 @@
       Mod :: module(),
       BootArgs :: [binary()].
 start(Mod, BootArgs) ->
-    %% Load the static nifs
-    zlib:on_load(),
-    erl_tracer:on_load(),
-    prim_buffer:on_load(),
-    prim_file:on_load(),
-    %% prim_socket:on_load(), prim_net:on_load(),
-    if_loaded(
-      prim_socket,
-      fun () ->
-              prim_socket:on_load(),
-              prim_net:on_load(),
-              ok
-      end),
+    case replay_enabled(BootArgs) of
+        true ->
+            ok;
+        false ->
+            %% Load the static nifs
+            zlib:on_load(),
+            erl_tracer:on_load(),
+            prim_buffer:on_load(),
+            prim_file:on_load(),
+            %% prim_socket:on_load(), prim_net:on_load(),
+            if_loaded(
+              prim_socket,
+              fun () ->
+                      prim_socket:on_load(),
+                      prim_net:on_load(),
+                      ok
+              end)
+    end,
     %% Proceed to the specified boot module
     run(Mod, boot, BootArgs).
 
@@ -58,6 +63,9 @@ restart() ->
               ok
       end).
 
+replay_enabled(BootArgs) ->
+    lists:member(<<"-replay">>, BootArgs)
+        orelse os:getenv("ERTS_MMAP_REPLAY") =:= "1".
 
 run(M, F, A) ->
     case erlang:function_exported(M, F, 1) of

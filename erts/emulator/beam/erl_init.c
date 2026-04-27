@@ -358,6 +358,8 @@ erl_init(int ncpu,
     erl_sys_late_init();
     packet_parser_init();
     erl_nif_init();
+    if (erts_mmap_record_option_replay_enabled())
+        erts_replay_reinit_loaded_static_nifs();
     erts_msacc_init();
     beamfile_init();
     erts_late_init_external();

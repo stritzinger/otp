@@ -5301,6 +5301,70 @@ static ErtsStaticNif* is_static_nif_module(Eterm mod_atom)
     return NULL;
 }
 
+static int
+replay_should_reinit_static_nif(const ErlNifEntry* entry)
+{
+    return sys_strcmp(entry->name, "prim_tty") == 0
+        || sys_strcmp(entry->name, "erl_tracer") == 0
+        || sys_strcmp(entry->name, "prim_buffer") == 0
+        || sys_strcmp(entry->name, "prim_file") == 0
+        || sys_strcmp(entry->name, "zlib") == 0
+        || sys_strcmp(entry->name, "zstd") == 0;
+}
+
+void
+erts_replay_reinit_loaded_static_nifs(void)
+{
+    ErtsStaticNif* p;
+
+    for (p = erts_static_nif_tab; p->nif_init != NULL; p++) {
+        Module* module_p;
+        struct erl_module_nif* lib;
+        ErlNifEntry* entry = p->entry;
+        ErlNifEnv env;
+        void* priv_data;
+        int veto;
+
+        if (entry == NULL || entry->load == NULL
+            || !replay_should_reinit_static_nif(entry)) {
+            continue;
+        }
+
+        module_p = erts_get_module(p->mod_atom, erts_active_code_ix());
+        if (module_p == NULL || module_p->curr.nif == NULL)
+            continue;
+
+        lib = module_p->curr.nif;
+        lib->mod = module_p;
+
+        ASSERT(opened_rt_list == NULL);
+
+        sys_memzero(&env, sizeof(env));
+        env.mod_nif = lib;
+        priv_data = lib->priv_data;
+
+        lib->flags |= ERTS_MOD_NIF_FLG_LOADING;
+        veto = entry->load(&env, &priv_data, SMALL_ZERO);
+        lib->flags &= ~ERTS_MOD_NIF_FLG_LOADING;
+
+        if (veto) {
+            rollback_opened_resource_types();
+            erts_exit(ERTS_ABORT_EXIT,
+                      "replay static NIF load callback failed for %T\n",
+                      p->mod_atom);
+        }
+
+        lib->priv_data = priv_data;
+        prepare_opened_rt(lib);
+
+        erts_rwmtx_rwlock(&erts_nif_call_tab_lock);
+        commit_opened_rt();
+        erts_rwmtx_rwunlock(&erts_nif_call_tab_lock);
+
+        cleanup_opened_rt();
+    }
+}
+
 
 void
 erts_unload_nif(struct erl_module_nif* lib)
