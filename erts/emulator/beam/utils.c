@@ -884,6 +884,15 @@ static int do_send_to_logger(Eterm tag, Eterm gl, char *buf, size_t len)
 static int do_send_term_to_logger(Eterm tag, Eterm gl,
 				  char *buf, size_t len, Eterm args)
 {
+    /*
+     * Replay debug mode: avoid traversing/copying args terms that may already
+     * be corrupt. Send plain text only so we can keep running and trace the
+     * earlier corruption point.
+     */
+    if (getenv("ERTS_REPLAY_COPY_DEBUG")) {
+        return do_send_to_logger(tag, gl, buf, len);
+    }
+
     Uint sz;
     Uint args_sz;
     Eterm format, pid;
