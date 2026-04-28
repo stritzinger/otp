@@ -53,98 +53,6 @@ static void save_stacktrace(Process* c_p, ErtsCodePtr pc, Eterm* reg,
 
 static Eterm make_arglist(Process* c_p, Eterm* reg, int a);
 
-static int
-replay_ptr_in_known_areas(Process *c_p, const void *ptr)
-{
-    if (ptr == NULL) {
-        return 0;
-    }
-
-    if (ErtsInArea(ptr, c_p->heap,
-                   (UWord) ((char *) c_p->hend - (char *) c_p->heap))) {
-        return 1;
-    }
-
-    if (ErtsInArea(ptr, c_p->stop,
-                   (UWord) ((char *) STACK_START(c_p) - (char *) c_p->stop))) {
-        return 1;
-    }
-
-    if (OLD_HEAP(c_p) && OLD_HEND(c_p)
-        && ErtsInArea(ptr, OLD_HEAP(c_p),
-                      (UWord) ((char *) OLD_HEND(c_p) - (char *) OLD_HEAP(c_p)))) {
-        return 1;
-    }
-
-    if (ErtsInArea(ptr, erts_literals_start, erts_literals_size)) {
-        return 1;
-    }
-
-    return 0;
-}
-
-static int
-replay_term_sane(Process *c_p, Eterm term, int depth)
-{
-    Eterm *ptr;
-    Eterm hdr;
-    Uint i;
-    Uint arity;
-
-    if (is_immed(term)) {
-        return 1;
-    }
-
-    if (depth <= 0) {
-        return 1;
-    }
-
-    if (is_list(term)) {
-        Eterm *cell = list_val(term);
-        if (!replay_ptr_in_known_areas(c_p, cell)) {
-            return 0;
-        }
-        return replay_term_sane(c_p, CAR(cell), depth - 1)
-            && replay_term_sane(c_p, CDR(cell), depth - 1);
-    }
-
-    if (!is_boxed(term)) {
-        return 0;
-    }
-
-    ptr = boxed_val(term);
-    if (!replay_ptr_in_known_areas(c_p, ptr)) {
-        return 0;
-    }
-
-    hdr = ptr[0];
-    if (!is_header(hdr)) {
-        return 0;
-    }
-
-    /*
-     * Recursively validate only tuple contents.
-     * Other boxed terms (bignums, binaries, refs, fun internals, etc.)
-     * contain non-term payload words and should not be traversed as Eterms.
-     */
-    if (!is_arity_value(hdr)) {
-        return 1;
-    }
-
-    arity = arityval(hdr);
-    if (arity > ((Uint) 1 << 20)) {
-        return 0;
-    }
-
-    for (i = 1; i <= arity; i++) {
-        if (!replay_term_sane(c_p, ptr[i], depth - 1)) {
-            return 0;
-        }
-    }
-
-    return 1;
-}
-
 /*
  * erts_dirty_process_main() is what dirty schedulers execute. Since they handle
  * only NIF calls they do not need to be able to execute all BEAM
@@ -777,10 +685,6 @@ terminate_proc(Process* c_p, Eterm Value)
     Eterm *hp;
     Eterm Args = NIL;
 
-    if (!replay_term_sane(c_p, c_p->ftrace, 8)) {
-        c_p->ftrace = NIL;
-    }
-
     /* Add a stacktrace if this is an error. */
     if (GET_EXC_CLASS(c_p->freason) == EXTAG_ERROR) {
         Value = add_stacktrace(c_p, Value, c_p->ftrace);
@@ -1141,9 +1045,6 @@ save_stacktrace(Process* c_p, ErtsCodePtr pc, Eterm* reg,
 	    hp += 2;
 	}
 	c_p->ftrace = TUPLE3(hp, make_big((Eterm *) s), args, error_info);
-        if (!replay_term_sane(c_p, c_p->ftrace, 8)) {
-            c_p->ftrace = NIL;
-        }
     }
 
     /* Save the actual stack trace */
