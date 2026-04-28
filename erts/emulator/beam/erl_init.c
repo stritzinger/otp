@@ -249,7 +249,6 @@ static int restore_struct_roots_for_replay(IndexTable *atom_root,
                                            int table_capacity,
                                            IndexTable *export_roots,
                                            IndexTable *fun_roots);
-static void debug_replay_roots_sanity(void);
 
 static void
 erl_init(int ncpu,
@@ -313,7 +312,7 @@ erl_init(int ncpu,
          * erts_active_code_ix() to look up code.
          */
         erts_code_ix_apply_replay_root();
-        debug_replay_roots_sanity();
+        erts_export_replay_repair_all_lambdas();
     } else {
         erts_init_fun_table();
         init_atom_table();
@@ -541,130 +540,6 @@ restore_struct_roots_for_replay(IndexTable *atom_root,
         && module_ix == table_capacity
         && export_ix == table_capacity
         && fun_ix == table_capacity;
-}
-
-static void
-debug_replay_roots_sanity(void)
-{
-    int i, samples, pre_i;
-    Eterm atom_term;
-    int atom_ok, module_entries;
-    Module *m = NULL;
-    Eterm mod_atom = THE_NON_VALUE;
-    const Preload *preload;
-    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
-    int enabled = !dbg || dbg[0] != '0';
-
-    if (!enabled) {
-        return;
-    }
-
-    erts_fprintf(stderr,
-                 "replay_root_debug: atom_table entries=%d size=%d limit=%d seg_table=%p hash_bucket=%p\n",
-                 erts_atom_table.entries,
-                 erts_atom_table.size,
-                 erts_atom_table.limit,
-                 (void *) erts_atom_table.seg_table,
-                 (void *) erts_atom_table.htable.bucket);
-    atom_table_replay_debug_dump();
-    module_table_replay_debug_dump();
-
-    atom_ok = 0;
-    if (erts_atom_table.htable.fun.hash
-        && erts_atom_table.htable.fun.cmp
-        && erts_atom_table.htable.fun.alloc) {
-        atom_ok = erts_atom_get((const char *) "erts_code_purger",
-                                sizeof("erts_code_purger") - 1,
-                                &atom_term,
-                                ERTS_ATOM_ENC_7BIT_ASCII);
-    }
-    erts_fprintf(stderr,
-                 "replay_root_debug: atom_lookup(erts_code_purger)=%d term=%T\n",
-                 atom_ok, atom_term);
-
-    module_entries = module_code_size(erts_active_code_ix());
-    erts_fprintf(stderr,
-                 "replay_root_debug: module_table active_entries=%d\n",
-                 module_entries);
-
-    if (erts_atom_get((const char *) "erts_code_purger",
-                      sizeof("erts_code_purger") - 1,
-                      &mod_atom,
-                      ERTS_ATOM_ENC_7BIT_ASCII)) {
-        m = erts_get_module(mod_atom, erts_active_code_ix());
-    }
-    erts_fprintf(stderr,
-                 "replay_root_debug: module_lookup(erts_code_purger)=%p\n",
-                 (void *) m);
-
-    samples = erts_atom_table.entries < 32 ? erts_atom_table.entries : 32;
-    for (i = 0; i < samples; i++) {
-        Atom *a = (Atom *) erts_index_lookup(&erts_atom_table, i);
-        if (!a) {
-            erts_fprintf(stderr, "replay_root_debug: atom_slot[%d]=NULL\n", i);
-            continue;
-        }
-        erts_fprintf(stderr,
-                     "replay_root_debug: atom_slot[%d]=%p slot.index=%d len=%d ord0=%d bin=%p name_ptr=%p\n",
-                     i, (void *) a, a->slot.index, (int) a->len, a->ord0,
-                     (void *) (UWord) a->u.bin,
-                     (void *) erts_atom_get_name(a));
-    }
-
-    atom_replay_debug_lookup("erts_code_purger");
-    atom_replay_debug_lookup("erl_init");
-    atom_replay_debug_lookup("start");
-    atom_replay_debug_lookup("atomics");
-
-    preload = sys_preloaded();
-    pre_i = 0;
-    while (preload && preload[pre_i].name && pre_i < 2) {
-        const char *name = preload[pre_i].name;
-        Eterm aterm = THE_NON_VALUE;
-        Module *pm = NULL;
-        int ok = erts_atom_get((const char *) name,
-                               sys_strlen(name),
-                               &aterm,
-                               ERTS_ATOM_ENC_LATIN1);
-        if (ok) {
-            pm = erts_get_module(aterm, erts_active_code_ix());
-        }
-        erts_fprintf(stderr,
-                     "replay_root_debug: preloaded[%d]=%s atom_ok=%d module=%p\n",
-                     pre_i, name, ok, (void *) pm);
-        pre_i++;
-    }
-
-    {
-        Eterm t = THE_NON_VALUE;
-        int ok;
-        ok = erts_atom_get((const char *) "start",
-                           sizeof("start") - 1,
-                           &t,
-                           ERTS_ATOM_ENC_7BIT_ASCII);
-        erts_fprintf(stderr,
-                     "replay_root_debug: const_check name=start ok=%d parsed=%p am_start=%p equal=%d\n",
-                     ok, (void *) (UWord) t, (void *) (UWord) am_start,
-                     (ok && t == am_start) ? 1 : 0);
-
-        ok = erts_atom_get((const char *) "erl_init",
-                           sizeof("erl_init") - 1,
-                           &t,
-                           ERTS_ATOM_ENC_7BIT_ASCII);
-        erts_fprintf(stderr,
-                     "replay_root_debug: const_check name=erl_init ok=%d parsed=%p am_erl_init=%p equal=%d\n",
-                     ok, (void *) (UWord) t, (void *) (UWord) am_erl_init,
-                     (ok && t == am_erl_init) ? 1 : 0);
-
-        ok = erts_atom_get((const char *) "erlang",
-                           sizeof("erlang") - 1,
-                           &t,
-                           ERTS_ATOM_ENC_7BIT_ASCII);
-        erts_fprintf(stderr,
-                     "replay_root_debug: const_check name=erlang ok=%d parsed=%p am_erlang=%p equal=%d\n",
-                     ok, (void *) (UWord) t, (void *) (UWord) am_erlang,
-                     (ok && t == am_erlang) ? 1 : 0);
-    }
 }
 
 static void

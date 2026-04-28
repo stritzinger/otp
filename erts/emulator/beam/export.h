@@ -124,6 +124,7 @@ typedef struct export_
 
 void init_export_table(void);
 void init_export_table_replay(IndexTable *roots, int no_roots);
+void erts_export_replay_repair_all_lambdas(void);
 void export_info(fmtfn_t, void *);
 
 ERTS_GLB_INLINE void erts_activate_export_trampoline(Export *ep, int code_ix);
@@ -185,4 +186,3 @@ erts_active_export_entry(Eterm m, Eterm f, unsigned int a)
 #endif /* ERTS_GLB_INLINE_INCL_FUNC_DEF */
 
 #endif /* __EXPORT_H__ */
-

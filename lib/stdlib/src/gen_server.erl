@@ -2358,17 +2358,17 @@ server_data(Parent, Name, Mod, HibernateAfter) ->
        name            = Name,
        module          = Mod,
        hibernate_after = HibernateAfter,
-       handle_call     = fun(Msg, From, State) -> Mod:handle_call(Msg, From, State) end,
-       handle_cast     = fun(Msg, State) -> Mod:handle_cast(Msg, State) end,
-       handle_info     = fun(Msg, State) -> Mod:handle_info(Msg, State) end,
-       handle_continue = fun(Msg, State) -> Mod:handle_continue(Msg, State) end}.
+       handle_call     = fun Mod:handle_call/3,
+       handle_cast     = fun Mod:handle_cast/2,
+       handle_info     = fun Mod:handle_info/2,
+       handle_continue = fun Mod:handle_continue/2}.
 
 update_callback_cache(#server_data{module = Mod} = ServerData) ->
     ServerData#server_data{
-      handle_call     = fun(Msg, From, State) -> Mod:handle_call(Msg, From, State) end,
-      handle_cast     = fun(Msg, State) -> Mod:handle_cast(Msg, State) end,
-      handle_info     = fun(Msg, State) -> Mod:handle_info(Msg, State) end,
-      handle_continue = fun(Msg, State) -> Mod:handle_continue(Msg, State) end}.
+      handle_call     = fun Mod:handle_call/3,
+      handle_cast     = fun Mod:handle_cast/2,
+      handle_info     = fun Mod:handle_info/2,
+      handle_continue = fun Mod:handle_continue/2}.
 
 decode_msg(#server_data{parent = Parent, tag = Tag} = ServerData, State, HibT, Debug, Timer, Msg) ->
     case Msg of
