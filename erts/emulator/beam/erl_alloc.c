@@ -119,158 +119,6 @@ static ErtsAllocStructSnapshot
 static int erts_alloc_struct_snapshot_count = 0;
 static char erts_alloc_struct_snapshot_dir[512] = {0};
 
-#define ERTS_ALLOC_MAP_MAX_RANGES 16384
-typedef struct {
-    UWord start;
-    UWord end;
-    int kind;
-} ErtsAllocMapRange;
-
-enum {
-    ERTS_ALLOC_MAP_KIND_UNKNOWN = 0,
-    ERTS_ALLOC_MAP_KIND_STACK,
-    ERTS_ALLOC_MAP_KIND_HEAP,
-    ERTS_ALLOC_MAP_KIND_MAPPED
-};
-
-static ErtsAllocMapRange erts_alloc_map_ranges[ERTS_ALLOC_MAP_MAX_RANGES];
-static int erts_alloc_map_range_count = 0;
-
-static const char *
-erts_alloc_map_kind_name(int kind)
-{
-    switch (kind) {
-    case ERTS_ALLOC_MAP_KIND_STACK: return "stack";
-    case ERTS_ALLOC_MAP_KIND_HEAP: return "heap";
-    case ERTS_ALLOC_MAP_KIND_MAPPED: return "mapped";
-    default: return "unknown";
-    }
-}
-
-static void
-erts_alloc_map_load(void)
-{
-    FILE *fp;
-    char line[1024];
-    erts_alloc_map_range_count = 0;
-    fp = fopen("/proc/self/maps", "r");
-    if (!fp) {
-        return;
-    }
-    while (fgets(line, sizeof(line), fp) != NULL) {
-        unsigned long long start, end;
-        int kind = ERTS_ALLOC_MAP_KIND_MAPPED;
-        if (erts_alloc_map_range_count >= ERTS_ALLOC_MAP_MAX_RANGES) {
-            break;
-        }
-        if (sscanf(line, "%llx-%llx", &start, &end) != 2) {
-            continue;
-        }
-        if (strstr(line, "[stack]")) {
-            kind = ERTS_ALLOC_MAP_KIND_STACK;
-        } else if (strstr(line, "[heap]")) {
-            kind = ERTS_ALLOC_MAP_KIND_HEAP;
-        }
-        erts_alloc_map_ranges[erts_alloc_map_range_count].start = (UWord) start;
-        erts_alloc_map_ranges[erts_alloc_map_range_count].end = (UWord) end;
-        erts_alloc_map_ranges[erts_alloc_map_range_count].kind = kind;
-        erts_alloc_map_range_count++;
-    }
-    fclose(fp);
-}
-
-static int
-erts_alloc_map_classify_ptr(const void *ptr)
-{
-    int i;
-    UWord addr = (UWord) ptr;
-    for (i = 0; i < erts_alloc_map_range_count; i++) {
-        if (addr >= erts_alloc_map_ranges[i].start
-            && addr < erts_alloc_map_ranges[i].end) {
-            return erts_alloc_map_ranges[i].kind;
-        }
-    }
-    return ERTS_ALLOC_MAP_KIND_UNKNOWN;
-}
-
-static void
-erts_alloc_struct_walk_index_table(int root_ix,
-                                   const ErtsAllocStructSnapshot *snap,
-                                   int wfd)
-{
-    IndexTable *tab = (IndexTable *) snap->ptr;
-    int pages, page_ix, slot_ix;
-    char line[512];
-    int len;
-    if (!tab || snap->size < sizeof(IndexTable)) {
-        return;
-    }
-
-    len = erts_snprintf(line, sizeof(line),
-                        "%d,%s,root,%p,%s\n",
-                        root_ix,
-                        snap->tag,
-                        (void *) tab,
-                        erts_alloc_map_kind_name(erts_alloc_map_classify_ptr(tab)));
-    if (len > 0) {
-        if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-        erts_silence_warn_unused_result(write(wfd, line, (size_t) len));
-    }
-
-    len = erts_snprintf(line, sizeof(line),
-                        "%d,%s,seg_table,%p,%s\n",
-                        root_ix,
-                        snap->tag,
-                        (void *) tab->seg_table,
-                        erts_alloc_map_kind_name(erts_alloc_map_classify_ptr(tab->seg_table)));
-    if (len > 0) {
-        if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-        erts_silence_warn_unused_result(write(wfd, line, (size_t) len));
-    }
-
-    len = erts_snprintf(line, sizeof(line),
-                        "%d,%s,htable.bucket,%p,%s\n",
-                        root_ix,
-                        snap->tag,
-                        (void *) tab->htable.bucket,
-                        erts_alloc_map_kind_name(erts_alloc_map_classify_ptr(tab->htable.bucket)));
-    if (len > 0) {
-        if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-        erts_silence_warn_unused_result(write(wfd, line, (size_t) len));
-    }
-
-    pages = (tab->size + INDEX_PAGE_SIZE - 1) >> INDEX_PAGE_SHIFT;
-    for (page_ix = 0; page_ix < pages; page_ix++) {
-        IndexSlot **page = (tab->seg_table ? tab->seg_table[page_ix] : NULL);
-        len = erts_snprintf(line, sizeof(line),
-                            "%d,%s,seg_page[%d],%p,%s\n",
-                            root_ix, snap->tag, page_ix, (void *) page,
-                            erts_alloc_map_kind_name(erts_alloc_map_classify_ptr(page)));
-        if (len > 0) {
-            if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-            erts_silence_warn_unused_result(write(wfd, line, (size_t) len));
-        }
-        if (!page) {
-            continue;
-        }
-        for (slot_ix = 0; slot_ix < INDEX_PAGE_SIZE; slot_ix++) {
-            int global_ix = (page_ix << INDEX_PAGE_SHIFT) + slot_ix;
-            IndexSlot *slot = page[slot_ix];
-            if (!slot || global_ix >= tab->entries) {
-                continue;
-            }
-            len = erts_snprintf(line, sizeof(line),
-                                "%d,%s,slot[%d],%p,%s\n",
-                                root_ix, snap->tag, global_ix, (void *) slot,
-                                erts_alloc_map_kind_name(erts_alloc_map_classify_ptr(slot)));
-            if (len > 0) {
-                if (len >= (int) sizeof(line)) len = (int) sizeof(line) - 1;
-                erts_silence_warn_unused_result(write(wfd, line, (size_t) len));
-            }
-        }
-    }
-}
-
 static int
 erts_alloc_struct_should_snapshot(const char *tag)
 {
@@ -302,7 +150,7 @@ erts_alloc_struct_register_snapshot(const char *tag, void *ptr, UWord size)
 static void
 erts_alloc_struct_dump_snapshots_on_exit(void)
 {
-    int i, fd, mfd, wfd;
+    int i, fd, mfd;
     char line[256];
     char path[1024];
     int len;
@@ -372,25 +220,6 @@ erts_alloc_struct_dump_snapshots_on_exit(void)
         close(mfd);
     }
 
-    len = erts_snprintf(path, sizeof(path), "%s/roots.walk.csv", erts_alloc_struct_snapshot_dir);
-    if (len <= 0 || len >= (int) sizeof(path)) {
-        return;
-    }
-    wfd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (wfd < 0) {
-        return;
-    }
-    erts_silence_warn_unused_result(write(wfd, "root_index,tag,field,ptr,where\n", 31));
-    erts_alloc_map_load();
-    for (i = 0; i < erts_alloc_struct_snapshot_count; i++) {
-        ErtsAllocStructSnapshot *snap = &erts_alloc_struct_snapshots[i];
-        if (erts_alloc_struct_should_snapshot(snap->tag)
-            && snap->tag[0] != 'c' /* skip "code_ix.root" (not an IndexTable) */
-            && snap->size >= sizeof(IndexTable)) {
-            erts_alloc_struct_walk_index_table(i, snap, wfd);
-        }
-    }
-    close(wfd);
 }
 
 static ERTS_INLINE void
@@ -441,22 +270,21 @@ erts_alloc_trace_note_alloc(const char *tag, void *ptr, UWord size)
     int len;
     int csv_len;
     const char *safe_tag;
-    if (erts_alloc_trace_fd < 0) {
-        return;
-    }
+
     safe_tag = tag ? tag : "unknown";
-    len = erts_snprintf(line, sizeof(line),
-                        "STRUCT_ALLOC tag=%s size=%lu ptr=%p\n",
-                        safe_tag,
-                        (unsigned long) size,
-                        ptr);
-    if (len < 0) {
-        return;
-    }
-    if (len >= (int) sizeof(line)) {
-        len = (int) sizeof(line) - 1;
-    }
+
     if (erts_alloc_trace_fd >= 0) {
+        len = erts_snprintf(line, sizeof(line),
+                            "STRUCT_ALLOC tag=%s size=%lu ptr=%p\n",
+                            safe_tag,
+                            (unsigned long) size,
+                            ptr);
+        if (len < 0) {
+            return;
+        }
+        if (len >= (int) sizeof(line)) {
+            len = (int) sizeof(line) - 1;
+        }
         erts_alloc_trace_write(line, len);
     }
     if (erts_alloc_struct_csv_fd >= 0) {
@@ -1079,13 +907,6 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
         }
         if (csv_path && csv_path[0] != '\0') {
             erts_alloc_struct_csv_fd = open(csv_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
-        } else if (trace_path && trace_path[0] != '\0') {
-            char default_csv_path[512];
-            int plen = erts_snprintf(default_csv_path, sizeof(default_csv_path),
-                                     "%s.struct_alloc.csv", trace_path);
-            if (plen > 0 && plen < (int) sizeof(default_csv_path)) {
-                erts_alloc_struct_csv_fd = open(default_csv_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
-            }
         }
         if (dump_dir && dump_dir[0] != '\0') {
             erts_snprintf(erts_alloc_struct_snapshot_dir,

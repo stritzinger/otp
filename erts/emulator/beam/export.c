@@ -37,10 +37,6 @@
 
 #define EXPORT_INITIAL_SIZE   4000
 #define EXPORT_LIMIT          (512*1024)
-#define EXPORT_LAMBDA_DUMP_FILE "export-lambdas.csv"
-
-static int export_lambda_dump_hook_registered = 0;
-static void export_dump_lambdas_on_exit(void);
 
 #ifdef DEBUG
 #  define IF_DEBUG(x) x
@@ -62,146 +58,6 @@ static void create_shared_lambda(Export *export)
 
     erts_global_literal_register(&export->lambda);
 }
-
-static void
-export_lambda_dump_path(char *buf, size_t bufsz)
-{
-    const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
-
-    if (!base_dir || base_dir[0] == '\0') {
-        base_dir = "_mmap-records/struct-root-dumps";
-    }
-
-    erts_snprintf(buf, bufsz, "%s/%s", base_dir, EXPORT_LAMBDA_DUMP_FILE);
-}
-
-static int
-export_mkdirs_for_path(const char *path)
-{
-    char tmp[1024];
-    char *p;
-
-    if (!path || path[0] == '\0') {
-        return 0;
-    }
-
-    erts_snprintf(tmp, sizeof(tmp), "%s", path);
-    for (p = tmp + 1; *p; p++) {
-        if (*p == '/') {
-            *p = '\0';
-            if (mkdir(tmp, 0777) < 0 && errno != EEXIST) {
-                return 0;
-            }
-            *p = '/';
-        }
-    }
-
-    return 1;
-}
-
-static void
-export_ensure_lambda_dump_file_for_record(void)
-{
-    char path[1024];
-    int fd;
-    static const char header[] =
-        "idx,code_ix,module_raw,function_raw,arity,export_ptr,lambda_raw,"
-        "lambda_box_ptr,thing_word,entry_exp_ptr,dispatch_addr\n";
-
-    if (!erts_mmap_record_option_record_enabled()) {
-        return;
-    }
-
-    export_lambda_dump_path(path, sizeof(path));
-    if (!export_mkdirs_for_path(path)) {
-        return;
-    }
-
-    fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0666);
-    if (fd < 0) {
-        return;
-    }
-
-    erts_silence_warn_unused_result(write(fd, header, sizeof(header) - 1));
-    close(fd);
-}
-
-static void
-register_export_lambda_dump_hook_once(void)
-{
-    if (!export_lambda_dump_hook_registered) {
-        if (atexit(export_dump_lambdas_on_exit) == 0) {
-            export_lambda_dump_hook_registered = 1;
-        }
-    }
-}
-
-static void
-export_dump_lambdas_on_exit(void)
-{
-    char path[1024];
-    FILE *f;
-    int code_ix;
-    int count;
-    int i;
-
-    if (!erts_mmap_record_option_record_enabled()) {
-        return;
-    }
-
-    export_lambda_dump_path(path, sizeof(path));
-    f = fopen(path, "w");
-    if (!f) {
-        return;
-    }
-
-    fprintf(f,
-            "idx,code_ix,module_raw,function_raw,arity,export_ptr,lambda_raw,"
-            "lambda_box_ptr,thing_word,entry_exp_ptr,dispatch_addr\n");
-
-    code_ix = erts_active_code_ix();
-    count = export_list_size(code_ix);
-
-    for (i = 0; i < count; i++) {
-        Export *ep = export_list(i, code_ix);
-        Eterm lambda;
-        UWord lambda_box_ptr = 0;
-        UWord thing_word = 0;
-        UWord entry_exp_ptr = 0;
-        UWord dispatch_addr = 0;
-
-        if (!ep) {
-            continue;
-        }
-
-        lambda = ep->lambda;
-        dispatch_addr = (UWord) ep->dispatch.addresses[code_ix];
-        if (is_boxed(lambda)) {
-            ErlFunThing *funp = (ErlFunThing *) fun_val(lambda);
-            lambda_box_ptr = (UWord) funp;
-            thing_word = (UWord) funp->thing_word;
-            entry_exp_ptr = (UWord) funp->entry.exp;
-        }
-
-        fprintf(f,
-                "%d,%d,0x%016llx,0x%016llx,%lu,0x%016llx,0x%016llx,"
-                "0x%016llx,0x%016llx,0x%016llx,0x%016llx\n",
-                i, code_ix,
-                (unsigned long long) (UWord) ep->info.mfa.module,
-                (unsigned long long) (UWord) ep->info.mfa.function,
-                (unsigned long) ep->info.mfa.arity,
-                (unsigned long long) (UWord) ep,
-                (unsigned long long) (UWord) lambda,
-                (unsigned long long) lambda_box_ptr,
-                (unsigned long long) thing_word,
-                (unsigned long long) entry_exp_ptr,
-                (unsigned long long) dispatch_addr);
-    }
-
-    fclose(f);
-}
-
-
 
 static HashValue export_hash(const Export *export)
 {
@@ -279,8 +135,6 @@ init_export_table(void)
     int i;
 
     export_staged_init();
-    register_export_lambda_dump_hook_once();
-    export_ensure_lambda_dump_file_for_record();
 
     for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
         erts_alloc_trace_note_alloc("export_table.index_root",
@@ -299,7 +153,6 @@ init_export_table_replay(IndexTable *roots, int no_roots)
     ASSERT(roots != NULL);
     ASSERT(no_roots == ERTS_NUM_CODE_IX);
     (void) no_roots;
-    register_export_lambda_dump_hook_once();
 
     rwmtx_opt.type = ERTS_RWMTX_TYPE_FREQUENT_READ;
     rwmtx_opt.lived = ERTS_RWMTX_LONG_LIVED;
