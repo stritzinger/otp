@@ -307,6 +307,14 @@ erts_alloc_struct_dump_snapshots_on_exit(void)
     char path[1024];
     int len;
 
+    /*
+     * Snapshot dumps are replay inputs and must only be produced by an
+     * explicit -record run, never by plain/normal execution.
+     */
+    if (!erts_mmap_record_option_record_enabled()) {
+        return;
+    }
+
     if (erts_alloc_struct_snapshot_count <= 0 || erts_alloc_struct_snapshot_dir[0] == '\0') {
         return;
     }
