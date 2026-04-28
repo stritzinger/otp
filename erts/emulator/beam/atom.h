@@ -145,8 +145,6 @@ Eterm erts_atom_put(const byte *name, Sint len, ErtsAtomEncoding enc, int trunc)
 int erts_atom_put_index(const byte *name, Sint len, ErtsAtomEncoding enc, int trunc);
 void init_atom_table(void);
 void init_atom_table_replay(IndexTable *root);
-void atom_table_replay_debug_dump(void);
-void atom_replay_debug_lookup(const char *name);
 void atom_info(fmtfn_t, void *);
 void dump_atoms(fmtfn_t, void *);
 Uint erts_get_atom_limit(void);

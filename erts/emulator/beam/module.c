@@ -161,35 +161,6 @@ init_module_table_replay(IndexTable *roots, int no_roots)
     erts_atomic_init_nob(&tot_module_bytes, 0);
 }
 
-void
-module_table_replay_debug_dump(void)
-{
-    int i;
-    for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
-        erts_fprintf(stderr,
-                     "replay_root_debug: module[%d] entries=%d size=%d limit=%d seg_table=%p hash_bucket=%p\n",
-                     i,
-                     module_tables[i].entries,
-                     module_tables[i].size,
-                     module_tables[i].limit,
-                     (void *) module_tables[i].seg_table,
-                     (void *) module_tables[i].htable.bucket);
-        erts_fprintf(stderr,
-                     "replay_root_debug: module[%d].hash_fun stored=%p expected=%p match=%d\n",
-                     i,
-                     (void *) (UWord) module_tables[i].htable.fun.hash,
-                     (void *) (UWord) ((H_FUN) module_hash),
-                     module_tables[i].htable.fun.hash == (H_FUN) module_hash);
-        erts_fprintf(stderr,
-                     "replay_root_debug: module[%d].cmp_fun stored=%p expected=%p match=%d\n",
-                     i,
-                     (void *) (UWord) module_tables[i].htable.fun.cmp,
-                     (void *) (UWord) ((HCMP_FUN) module_cmp),
-                     module_tables[i].htable.fun.cmp == (HCMP_FUN) module_cmp);
-    }
-}
-
-
 Module*
 erts_get_module(Eterm mod, ErtsCodeIndex code_ix)
 {

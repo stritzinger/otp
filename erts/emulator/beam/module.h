@@ -77,7 +77,6 @@ void erts_seal_module(struct erl_module_instance *modi);
 
 void init_module_table(void);
 void init_module_table_replay(IndexTable *roots, int no_roots);
-void module_table_replay_debug_dump(void);
 void module_start_staging(void);
 void module_end_staging(int commit);
 void module_info(fmtfn_t, void *);

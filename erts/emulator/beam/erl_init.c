@@ -372,36 +372,12 @@ erl_spawn_system_process(Process* parent, Eterm mod, Eterm func, Eterm args,
     Eterm res;
     int arity;
     ErtsCodePtr fn_active;
-    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
 
     ERTS_LC_ASSERT(ERTS_PROC_LOCK_MAIN & erts_proc_lc_my_proc_locks(parent));
     arity = erts_list_length(args);
     fn_active = erts_find_function(mod, func, arity, erts_active_code_ix());
 
-    if (dbg && dbg[0] != '0') {
-        ErtsCodePtr fn_staging = erts_find_function(mod, func, arity, erts_staging_code_ix());
-        Module *mod_active = erts_get_module(mod, erts_active_code_ix());
-        Module *mod_staging = erts_get_module(mod, erts_staging_code_ix());
-        erts_fprintf(stderr,
-                     "replay_root_debug: spawn_lookup mod=%T func=%T arity=%d active_ix=%u staging_ix=%u fn_active=%p fn_staging=%p mod_active=%p mod_staging=%p\n",
-                     mod, func, arity,
-                     (unsigned int) erts_active_code_ix(),
-                     (unsigned int) erts_staging_code_ix(),
-                     (void *) fn_active, (void *) fn_staging,
-                     (void *) mod_active, (void *) mod_staging);
-    }
-
     if (fn_active == NULL) {
-        if (dbg && dbg[0] != '0') {
-            erts_fprintf(stderr,
-                         "replay_root_debug: no_function mod_raw=%p func_raw=%p mod_is_atom=%d func_is_atom=%d arity=%d\n",
-                         (void *) (UWord) mod, (void *) (UWord) func,
-                         is_atom(mod) ? 1 : 0, is_atom(func) ? 1 : 0, arity);
-            erts_fprintf(stderr,
-                         "replay_root_debug: atom_consts am_erl_init=%p is_atom=%d am_start=%p is_atom=%d\n",
-                         (void *) (UWord) am_erl_init, is_atom(am_erl_init) ? 1 : 0,
-                         (void *) (UWord) am_start, is_atom(am_start) ? 1 : 0);
-        }
 	erts_exit(ERTS_ERROR_EXIT, "No function %T:%T/%i\n", mod, func, arity);
     }
 
@@ -549,8 +525,6 @@ validate_replay_module_tables(void)
     int i;
     Eterm mod_atom = THE_NON_VALUE;
     Module *m = NULL;
-    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
-    int enabled = !dbg || dbg[0] != '0';
 
     preload = sys_preloaded();
     if (!preload) {
@@ -583,24 +557,12 @@ validate_replay_module_tables(void)
                       "replay validation failed: module '%s' has invalid current code (code_hdr=%p code_length=%d)\n",
                       name, (void *) m->curr.code_hdr, m->curr.code_length);
         }
-
-        if (enabled && i < 20) {
-            erts_fprintf(stderr,
-                         "replay_root_debug: replay_validate preloaded[%d]=%s module=%p code_hdr=%p code_len=%d\n",
-                         i, name, (void *) m, (void *) m->curr.code_hdr, m->curr.code_length);
-        }
         i++;
     }
 
     if (!erts_find_function(am_erl_init, am_start, 2, erts_active_code_ix())) {
         erts_exit(ERTS_ABORT_EXIT,
                   "replay validation failed: function erl_init:start/2 not found in active code index\n");
-    }
-
-    if (enabled) {
-        erts_fprintf(stderr,
-                     "replay_root_debug: replay_validate success preloaded_modules=%d erl_init:start/2=ok\n",
-                     i);
     }
 }
 
@@ -672,16 +634,10 @@ erl_system_process_otp(Eterm parent_pid, char* modname, int off_heap_msgq, int p
     Process *parent;
     ErlSpawnOpts so;
     Eterm mod, res;
-    char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
 
     parent = erts_pid2proc(NULL, 0, parent_pid, ERTS_PROC_LOCK_MAIN);
     mod = erts_atom_put((byte *) modname, sys_strlen(modname),
                         ERTS_ATOM_ENC_LATIN1, 1);
-    if (dbg && dbg[0] != '0') {
-        erts_fprintf(stderr,
-                     "replay_root_debug: system_process modname=%s mod=%T parent=%T off_heap=%d prio=%d\n",
-                     modname, mod, parent_pid, off_heap_msgq, prio);
-    }
 
     ERTS_SET_DEFAULT_SPAWN_OPTS(&so);
 
@@ -2913,7 +2869,7 @@ erl_start(int argc, char **argv)
                     sz = strtoul(szs, NULL, 10);
                     if ((UWord) sz != bccix_size) {
                         erts_fprintf(stderr,
-                                     "replay_root_debug: bccix size mismatch "
+                                     "bccix restore size mismatch "
                                      "dump=%lu expected=%bpu\n",
                                      sz, bccix_size);
                         continue;
@@ -2933,21 +2889,7 @@ erl_start(int argc, char **argv)
                 }
                 fclose(mf);
             }
-            {
-                char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
-                if (!dbg || dbg[0] != '0') {
-                    erts_fprintf(stderr,
-                                 "replay_root_debug: bccix restore %s\n",
-                                 loaded ? "OK" : "FAILED");
-                }
-            }
-        }
-        {
-            char *dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
-            if (!dbg || dbg[0] != '0') {
-                erts_fprintf(stderr,
-                             "replay_root_debug: skipping load_preloaded() in replay mode after validation, ranges rebuilt\n");
-            }
+            (void) loaded;
         }
     } else {
         load_preloaded();
@@ -2965,12 +2907,10 @@ erl_start(int argc, char **argv)
     }
 
     erts_initialized = 1;
-
     erts_init_process_id = erl_first_process_otp(init, boot_argc, boot_argv);
     ASSERT(erts_init_process_id != ERTS_INVALID_PID);
 
     {
-<<<<<<< HEAD
 	/*
 	 * System processes that are *always* alive. If they terminate
 	 * they bring the whole VM down.
@@ -3025,75 +2965,6 @@ erl_start(int argc, char **argv)
 	ASSERT(erts_dirty_process_signal_handler_max
 	       && erts_dirty_process_signal_handler_max->common.id == pid);
 	erts_proc_inc_refc(erts_dirty_process_signal_handler_max);
-=======
-        /*
-         * System processes that are *always* alive. If they terminate
-         * they bring the whole VM down.
-         */
-        Eterm pid;
-
-        pid = erl_system_process_otp(erts_init_process_id,
-                                     "erts_code_purger", !0,
-                                     PRIORITY_HIGH);
-        erts_code_purger
-            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
-                                                    internal_pid_index(pid));
-        ASSERT(erts_code_purger && erts_code_purger->common.id == pid);
-        erts_proc_inc_refc(erts_code_purger);
-
-        pid = erl_system_process_otp(erts_init_process_id,
-                                     "erts_literal_area_collector",
-                                     !0, PRIORITY_HIGH);
-        erts_literal_area_collector
-            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
-                                                    internal_pid_index(pid));
-        ASSERT(erts_literal_area_collector
-               && erts_literal_area_collector->common.id == pid);
-        erts_proc_inc_refc(erts_literal_area_collector);
-
-        pid = erl_system_process_otp(erts_init_process_id,
-                                     "erts_dirty_process_signal_handler",
-                                     !0, PRIORITY_NORMAL);
-        erts_dirty_process_signal_handler
-            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
-                                                    internal_pid_index(pid));
-        ASSERT(erts_dirty_process_signal_handler
-               && erts_dirty_process_signal_handler->common.id == pid);
-        erts_proc_inc_refc(erts_dirty_process_signal_handler);
-
-        pid = erl_system_process_otp(erts_init_process_id,
-                                     "erts_dirty_process_signal_handler",
-                                     !0, PRIORITY_HIGH);
-        erts_dirty_process_signal_handler_high
-            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
-                                                    internal_pid_index(pid));
-        ASSERT(erts_dirty_process_signal_handler_high
-               && erts_dirty_process_signal_handler_high->common.id == pid);
-        erts_proc_inc_refc(erts_dirty_process_signal_handler_high);
-
-        pid = erl_system_process_otp(erts_init_process_id,
-                                     "erts_dirty_process_signal_handler",
-                                     !0, PRIORITY_MAX);
-        erts_dirty_process_signal_handler_max
-            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
-                                                    internal_pid_index(pid));
-        ASSERT(erts_dirty_process_signal_handler_max
-               && erts_dirty_process_signal_handler_max->common.id == pid);
-        erts_proc_inc_refc(erts_dirty_process_signal_handler_max);
->>>>>>> 759b4aa37d (Always launch sys processes)
-
-        pid = erl_system_process_otp(erts_init_process_id,
-                                     "erts_trace_cleaner", !0,
-                                     PRIORITY_NORMAL);
-        erts_trace_cleaner
-            = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
-                                                    internal_pid_index(pid));
-        ASSERT(erts_trace_cleaner && erts_trace_cleaner->common.id == pid);
-        erts_proc_inc_refc(erts_trace_cleaner);
-<<<<<<< HEAD
-
-=======
->>>>>>> 759b4aa37d (Always launch sys processes)
     }
 
     erts_start_schedulers();

@@ -1201,11 +1201,11 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
     if (erts_mmap_record_option_replay_enabled()) {
         if (!erts_mmap_record_literal_restore(&erts_literal_mmapper)) {
             erts_fprintf(stderr,
-                         "replay_root_debug: failed to restore literal super-carrier "
+                         "failed to restore literal super-carrier "
                          "snapshot; replay will likely fail\n");
         } else {
             erts_fprintf(stderr,
-                         "replay_root_debug: restored literal super-carrier snapshot\n");
+                         "restored literal super-carrier snapshot\n");
         }
     }
 #endif
