@@ -244,6 +244,7 @@ void erl_error(const char *fmt, va_list args)
 }
 
 static int early_init(int *argc, char **argv);
+static void ensure_replay_node_argument();
 static int restore_struct_roots_for_replay(IndexTable *atom_root,
                                            IndexTable *module_roots,
                                            int table_capacity,
@@ -731,6 +732,7 @@ static char* program;
 static char* init = "init";
 static int    boot_argc;
 static char** boot_argv;
+static char replay_boot_arg[] = "-replay";
 
 static char *
 get_arg(char* rest, char* next, int* ip)
@@ -1557,6 +1559,33 @@ early_init(int *argc, char **argv) /*
     return ncpu;
 }
 
+static void ensure_replay_node_argument()
+{
+        int j;
+        int has_replay_arg = 0;
+        char **replay_boot_argv;
+
+        for (j = 0; j < boot_argc; j++) {
+            if (boot_argv[j] && sys_strcmp(boot_argv[j], "-replay") == 0) {
+                has_replay_arg = 1;
+                break;
+            }
+        }
+
+        if (!has_replay_arg) {
+            replay_boot_argv = (char **) malloc(sizeof(char *) * (boot_argc + 1));
+            if (!replay_boot_argv) {
+                erts_exit(ERTS_ABORT_EXIT,
+                          "failed to append -replay to node boot arguments\n");
+            }
+            for (j = 0; j < boot_argc; j++) {
+                replay_boot_argv[j] = boot_argv[j];
+            }
+            replay_boot_argv[boot_argc] = replay_boot_arg;
+            boot_argv = replay_boot_argv;
+            boot_argc++;
+        }
+}
 
 void
 erl_start(int argc, char **argv)
@@ -2784,6 +2813,9 @@ erl_start(int argc, char **argv)
 
     boot_argc = argc - i;  /* Number of arguments to init */
     boot_argv = &argv[i];
+    if (erts_mmap_record_option_replay_enabled()) {
+		ensure_replay_node_argument();
+    }
 
     if (erts_sched_thread_suggested_stack_size < ERTS_SCHED_THREAD_MIN_STACK_SIZE)
         erts_sched_thread_suggested_stack_size = ERTS_SCHED_THREAD_MIN_STACK_SIZE;
