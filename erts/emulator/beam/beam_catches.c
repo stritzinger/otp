@@ -87,9 +87,6 @@ void beam_catches_init(void)
     bccix[0].high_mark = 0;
     bccix[0].beam_catches = erts_alloc(ERTS_ALC_T_CATCHES,
 				     sizeof(beam_catch_t)*DEFAULT_TABSIZE);
-    erts_alloc_trace_note_alloc("beam_catches.table",
-                                bccix[0].beam_catches,
-                                sizeof(beam_catch_t) * DEFAULT_TABSIZE);
     IF_DEBUG(bccix[0].is_staging = 0);
     for (i=1; i<ERTS_NUM_CODE_IX; i++) {
 	bccix[i] = bccix[i-1];
@@ -179,9 +176,6 @@ unsigned beam_catches_cons(ErtsCodePtr cp, unsigned cdr, ErtsCodePtr **cppp)
 
 	    p->beam_catches = erts_alloc(ERTS_ALC_T_CATCHES,
 					 newsize*sizeof(beam_catch_t));
-            erts_alloc_trace_note_alloc("beam_catches.table.grow",
-                                        p->beam_catches,
-                                        newsize * sizeof(beam_catch_t));
 	    sys_memcpy(p->beam_catches, prev_vec,
 		       p->tabsize*sizeof(beam_catch_t));
 	    gc_old_vec(prev_vec);

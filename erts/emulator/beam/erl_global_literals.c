@@ -143,8 +143,6 @@ static void expand_shared_global_literal_area(Uint heap_size)
                   (UWord) size, use_record_backend);
     }
 
-    erts_alloc_trace_note_alloc("global_literal.chunk", chunk, (UWord) size);
-
     chunk->area.end = &(chunk->area.start[0]);
     chunk->chunk_end = &(chunk->area.start[heap_size]);
     chunk->area.off_heap = NULL;
