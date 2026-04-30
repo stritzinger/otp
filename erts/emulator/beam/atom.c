@@ -529,6 +529,7 @@ init_atom_table_replay(IndexTable *root)
     f.meta_free = (HMFREE_FUN) erts_free;
     f.meta_print = (HMPRINT_FUN) erts_print;
     erts_atom_table.htable.fun = f;
+    erts_index_rebuild_hash_buckets(&erts_atom_table);
 
     atom_space = 0;
     for (i = 0; i < erts_atom_table.entries; i++) {

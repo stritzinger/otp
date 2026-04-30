@@ -176,6 +176,7 @@ void erts_init_fun_table_replay(IndexTable *roots, int no_roots)
     for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
         fun_tables[i] = roots[i];
         fun_tables[i].htable.fun = f;
+        erts_index_rebuild_hash_buckets(&fun_tables[i]);
     }
 }
 
@@ -363,4 +364,3 @@ void erts_fun_end_staging(int commit)
                    erts_has_code_stage_permission());
     fun_staged_end_staging(commit);
 }
-

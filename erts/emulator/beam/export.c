@@ -177,6 +177,7 @@ init_export_table_replay(IndexTable *roots, int no_roots)
     for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
         export_tables[i] = roots[i];
         export_tables[i].htable.fun = f;
+        erts_index_rebuild_hash_buckets(&export_tables[i]);
     }
 }
 

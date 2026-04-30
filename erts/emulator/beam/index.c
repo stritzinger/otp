@@ -116,6 +116,49 @@ int index_get(IndexTable* t, void* tmpl)
     return -1;
 }
 
+void
+erts_index_rebuild_hash_buckets(IndexTable *t)
+{
+    int i;
+    int bits = ERTS_SIZEOF_TERM * 8;
+    Uint slots;
+    Uint sz;
+    int nobjs = 0;
+    HashBucket **new_bucket;
+    Hash *h;
+
+    ASSERT(t != NULL);
+
+    h = &t->htable;
+    ASSERT(h->shift > 0 && h->shift < bits);
+    ASSERT(bits - h->shift > 0);
+
+    slots = UWORD_CONSTANT(1) << (bits - h->shift);
+    sz = slots * sizeof(HashBucket *);
+
+    new_bucket = (HashBucket **) h->fun.meta_alloc(h->meta_alloc_type, sz);
+    memzero(new_bucket, sz);
+
+    for (i = 0; i < t->entries; i++) {
+        HashBucket *b = (HashBucket *) erts_index_lookup(t, i);
+        if (b) {
+            Uint ix = hash_get_slot(h, b->hvalue);
+            b->next = new_bucket[ix];
+            new_bucket[ix] = b;
+            nobjs++;
+        }
+    }
+
+    h->bucket = new_bucket;
+    h->nobjs = nobjs;
+    h->grow_threshold = (8 * (int) slots) / 5;
+    if (h->shift < h->max_shift) {
+        h->shrink_threshold = ((int) slots) / 5;
+    } else {
+        h->shrink_threshold = -1;
+    }
+}
+
 void index_erase_latest_from(IndexTable* t, Uint from_ix)
 {
     if(from_ix < (Uint)t->entries) {

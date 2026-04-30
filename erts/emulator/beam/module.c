@@ -151,6 +151,7 @@ init_module_table_replay(IndexTable *roots, int no_roots)
     for (i = 0; i < ERTS_NUM_CODE_IX; i++) {
         module_tables[i] = roots[i];
         module_tables[i].htable.fun = f;
+        erts_index_rebuild_hash_buckets(&module_tables[i]);
     }
 
     for (i=0; i<ERTS_NUM_CODE_IX; i++) {
