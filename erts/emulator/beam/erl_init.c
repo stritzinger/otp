@@ -358,27 +358,6 @@ erl_init(int ncpu,
     erl_sys_late_init();
     packet_parser_init();
     erl_nif_init();
-    if (erts_mmap_record_option_replay_enabled()) {
-#ifdef ERTS_ENABLE_LOCK_CHECK
-        /*
-         * replay static NIF reinit invokes NIF load callbacks that expect to
-         * run with code modification permissions from a managed scheduler/aux
-         * context. During erl_init() we're on the unmanaged startup thread,
-         * so lock checking will abort.
-         */
-        if (getenv("ERTS_REPLAY_FORCE_STATIC_NIF_REINIT")) {
-            ErtsThrPrgrDelayHandle replay_nif_dhndl;
-            replay_nif_dhndl = erts_thr_progress_unmanaged_delay();
-            erts_replay_reinit_loaded_static_nifs();
-            erts_thr_progress_unmanaged_continue(replay_nif_dhndl);
-        }
-#else
-        ErtsThrPrgrDelayHandle replay_nif_dhndl;
-        replay_nif_dhndl = erts_thr_progress_unmanaged_delay();
-        erts_replay_reinit_loaded_static_nifs();
-        erts_thr_progress_unmanaged_continue(replay_nif_dhndl);
-#endif
-    }
     erts_msacc_init();
     beamfile_init();
     erts_late_init_external();
@@ -2963,6 +2942,15 @@ erl_start(int argc, char **argv)
     erts_initialized = 1;
     erts_init_process_id = erl_first_process_otp(init, boot_argc, boot_argv);
     ASSERT(erts_init_process_id != ERTS_INVALID_PID);
+    if (erts_mmap_record_option_replay_enabled()) {
+        ErtsThrPrgrDelayHandle replay_nif_dhndl;
+        replay_nif_dhndl = erts_thr_progress_unmanaged_delay();
+#ifdef ERTS_ENABLE_LOCK_CHECK
+        erts_lc_soften_code_mod_permission_check();
+#endif
+        erts_replay_reinit_loaded_static_nifs();
+        erts_thr_progress_unmanaged_continue(replay_nif_dhndl);
+    }
 
     {
 	/*

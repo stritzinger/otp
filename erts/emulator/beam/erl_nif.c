@@ -393,6 +393,16 @@ schedule(ErlNifEnv* env, NativeFunPtr direct_fp, NativeFunPtr indirect_fp,
 				  argc, (const Eterm *) argv);
     if (!ep->m) {
 	/* First time this call is scheduled... */
+        if (erts_mmap_record_option_replay_enabled()
+            && erts_refc_read(&env->mod_nif->dynlib_refc, 0) < 1) {
+            /*
+             * Replay may restore stale dynamic-library refc state from the
+             * snapshot (for example zero even though the module instance still
+             * points at a live static NIF). Re-establish the baseline module
+             * reference so dirty NIF scheduling can safely take its call ref.
+             */
+            erts_refc_init(&env->mod_nif->dynlib_refc, 1);
+        }
 	erts_refc_inc(&env->mod_nif->dynlib_refc, 2);
 	ep->m = env->mod_nif;
     }
@@ -2679,7 +2689,8 @@ ErlNifResourceType* open_resource_type(ErlNifEnv* env,
     if (!env->mod_nif || !(env->mod_nif->flags & ERTS_MOD_NIF_FLG_LOADING))
         goto done;
 
-    ERTS_LC_ASSERT(erts_has_code_mod_permission());
+    ERTS_LC_ASSERT(erts_has_code_mod_permission()
+                   || erts_mmap_record_option_replay_enabled());
     module_am = make_atom(env->mod_nif->mod->module);
     name_am = enif_make_atom(env, name_str);
 
@@ -2792,7 +2803,15 @@ static void prepare_opened_rt(struct erl_module_nif* lib)
 	}
 	else { /* ERL_NIF_RT_TAKEOVER */
 	    steal_resource_type(type);
+            if (erts_mmap_record_option_replay_enabled()
+                && erts_refc_read(&type->owner->refc, 0) < 1) {
+                erts_refc_init(&type->owner->refc, 1);
+            }
             ASSERT(erts_refc_read(&type->owner->refc, 1) > 0);
+            if (erts_mmap_record_option_replay_enabled()
+                && erts_refc_read(&type->owner->dynlib_refc, 0) < 1) {
+                erts_refc_init(&type->owner->dynlib_refc, 1);
+            }
             ASSERT(erts_refc_read(&type->owner->dynlib_refc, 1) > 0);
 
             /*
@@ -2805,8 +2824,17 @@ static void prepare_opened_rt(struct erl_module_nif* lib)
 	}
         type->owner = lib;
 
-        if (rt_have_callbacks(&ort->new_callbacks))
+        if (rt_have_callbacks(&ort->new_callbacks)) {
+            if (erts_mmap_record_option_replay_enabled()
+                && erts_refc_read(&lib->dynlib_refc, 0) < 1) {
+                erts_refc_init(&lib->dynlib_refc, 1);
+            }
 	    erts_refc_inc(&lib->dynlib_refc, 2);
+        }
+        if (erts_mmap_record_option_replay_enabled()
+            && erts_refc_read(&lib->refc, 0) < 1) {
+            erts_refc_init(&lib->refc, 1);
+        }
 	erts_refc_inc(&lib->refc, 2);
 
         ort = ort->next;
@@ -5323,6 +5351,7 @@ erts_replay_reinit_loaded_static_nifs(void)
         ErlNifEntry* entry = p->entry;
         ErlNifEnv env;
         void* priv_data;
+        Eterm load_arg = SMALL_ZERO;
         int veto;
 
         if (entry == NULL || entry->load == NULL
@@ -5344,7 +5373,11 @@ erts_replay_reinit_loaded_static_nifs(void)
         priv_data = lib->priv_data;
 
         lib->flags |= ERTS_MOD_NIF_FLG_LOADING;
-        veto = entry->load(&env, &priv_data, SMALL_ZERO);
+        if (sys_strcmp(entry->name, "prim_file") == 0
+            && is_internal_pid(erts_init_process_id)) {
+            load_arg = erts_init_process_id;
+        }
+        veto = entry->load(&env, &priv_data, load_arg);
         lib->flags &= ~ERTS_MOD_NIF_FLG_LOADING;
 
         if (veto) {
