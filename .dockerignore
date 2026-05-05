@@ -1,0 +1,22 @@
+.git
+.github
+.devcontainer
+
+# Mirror key OTP gitignore rules so Docker does not copy generated launchers
+/bin
+/bootstrap/bin/*
+!/bootstrap/bin/*.boot
+
+# Local OTP build artifacts that should not be sent as Docker build context
+**/deps/
+**/erl_crash.dump
+**/CONF_INFO
+**/config.log
+**/config.status
+**/obj/
+**/obj.debug/
+erts/*-unknown-linux-gnu/
+
+# Generated ASN.1 outputs with host-specific absolute paths
+lib/public_key/src/OTP-PKIX-Relaxed.erl
+lib/public_key/src/OTP-PKIX-Relaxed.hrl
