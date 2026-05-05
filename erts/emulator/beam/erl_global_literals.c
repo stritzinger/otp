@@ -24,6 +24,10 @@
 #  include "config.h"
 #endif
 
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "sys.h"
 #include "global.h"
 #include "erl_global_literals.h"
@@ -221,7 +225,130 @@ init_global_literals(void)
 {
     erts_mtx_init(&global_literal_lock, "global_literals", NIL,
         ERTS_LOCK_FLAGS_PROPERTY_STATIC | ERTS_LOCK_FLAGS_CATEGORY_GENERIC);
-    
+
+    /*
+     * Replay path: instead of allocating a fresh global-literal chunk
+     * (which would produce a new ERTS_GLOBAL_LIT_EMPTY_TUPLE at a different
+     * virtual address than the record run baked into every empty literal
+     * flatmap's `keys` field), reload the snapshotted globals from
+     * struct-root-dumps. The empty tuple's underlying bytes [0,0] still
+     * live at the same arena address thanks to MAP_PRIVATE.
+     */
+    if (erts_mmap_record_option_replay_enabled()
+        && erts_global_literals_apply_replay_root()) {
+        return;
+    }
+
     expand_shared_global_literal_area(GLOBAL_LITERAL_INITIAL_SIZE);
     init_empty_tuple();
+
+    /*
+     * Record path: register the global state for the struct-root-dump so
+     * the next replay run can restore the same empty-tuple Eterm value and
+     * chunk-list head. Done after init_empty_tuple so the snapshot
+     * captures the post-init values.
+     */
+    if (erts_mmap_record_option_record_enabled()) {
+        erts_alloc_trace_note_alloc("global_literals.empty_tuple",
+                                    &ERTS_GLOBAL_LIT_EMPTY_TUPLE,
+                                    sizeof(ERTS_GLOBAL_LIT_EMPTY_TUPLE));
+        erts_alloc_trace_note_alloc("global_literals.chunk_head",
+                                    &global_literal_chunk,
+                                    sizeof(global_literal_chunk));
+    }
+}
+
+int
+erts_global_literals_apply_replay_root(void)
+{
+    const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+    char dir_buf[512];
+    char manifest_path[1024];
+    FILE *mf;
+    char line[1024];
+    int loaded_empty_tuple = 0;
+    int loaded_chunk_head = 0;
+
+    if (!base_dir || base_dir[0] == '\0') {
+        base_dir = "_mmap-records/struct-root-dumps";
+    }
+    erts_snprintf(dir_buf, sizeof(dir_buf), "%s", base_dir);
+    erts_snprintf(manifest_path, sizeof(manifest_path),
+                  "%s/roots.csv", dir_buf);
+
+    mf = fopen(manifest_path, "r");
+    if (!mf) {
+        return 0;
+    }
+
+    while (fgets(line, sizeof(line), mf) != NULL) {
+        char *p1, *p2, *p3, *p4;
+        char *tag, *szs, *file;
+        unsigned long sz;
+        char file_path[1024];
+        FILE *bf;
+        void *dst = NULL;
+        UWord want_size = 0;
+
+        if (line[0] == '\0' || line[0] == '\n' || line[0] == '#'
+            || !isdigit((unsigned char) line[0])) {
+            continue;
+        }
+        p1 = strchr(line, ',');       if (!p1) continue;
+        p2 = strchr(p1 + 1, ',');     if (!p2) continue;
+        p3 = strchr(p2 + 1, ',');     if (!p3) continue;
+        p4 = strchr(p3 + 1, ',');     if (!p4) continue;
+        tag = p1 + 1; *p2 = '\0';
+        szs = p3 + 1; *p4 = '\0';
+        file = p4 + 1;
+        file[strcspn(file, "\r\n")] = '\0';
+
+        if (strcmp(tag, "global_literals.empty_tuple") == 0) {
+            dst = &ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+            want_size = sizeof(ERTS_GLOBAL_LIT_EMPTY_TUPLE);
+        } else if (strcmp(tag, "global_literals.chunk_head") == 0) {
+            dst = &global_literal_chunk;
+            want_size = sizeof(global_literal_chunk);
+        } else {
+            continue;
+        }
+
+        sz = strtoul(szs, NULL, 10);
+        if ((UWord) sz != want_size) {
+            erts_fprintf(stderr,
+                         "global_literals replay restore size mismatch tag=%s "
+                         "dump=%lu expected=%bpu\n",
+                         tag, sz, want_size);
+            continue;
+        }
+        erts_snprintf(file_path, sizeof(file_path), "%s/%s", dir_buf, file);
+        bf = fopen(file_path, "rb");
+        if (!bf) continue;
+        if (fread(dst, 1, want_size, bf) == want_size) {
+            if (dst == &ERTS_GLOBAL_LIT_EMPTY_TUPLE) {
+                loaded_empty_tuple = 1;
+            } else if (dst == &global_literal_chunk) {
+                loaded_chunk_head = 1;
+            }
+        }
+        fclose(bf);
+    }
+
+    fclose(mf);
+
+    if (loaded_empty_tuple && loaded_chunk_head) {
+        erts_fprintf(stderr,
+                     "global_literals: restored empty_tuple=%p chunk_head=%p "
+                     "from replay snapshot\n",
+                     (void *) (UWord) ERTS_GLOBAL_LIT_EMPTY_TUPLE,
+                     (void *) global_literal_chunk);
+        return 1;
+    }
+    if (loaded_empty_tuple || loaded_chunk_head) {
+        erts_fprintf(stderr,
+                     "global_literals: partial replay snapshot "
+                     "(empty_tuple=%d chunk_head=%d), falling back to fresh init\n",
+                     loaded_empty_tuple, loaded_chunk_head);
+    }
+    return 0;
 }

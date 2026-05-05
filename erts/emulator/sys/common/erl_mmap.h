@@ -169,6 +169,14 @@ int erts_mmap_record_init(void);
 void *erts_mmap_record_alloc(UWord *sizep, Uint32 mmap_flags);
 void erts_mmap_record_free(void *ptr, UWord size);
 void *erts_mmap_record_realloc(void *ptr, UWord old_size, UWord *sizep, Uint32 mmap_flags);
+/*
+ * Diagnostic helpers: identify whether a pointer falls inside the recorded
+ * mseg arena (the file-backed [record_base, record_base+ERTS_RECORD_ARENA_SIZE)
+ * range). Useful in replay-time instrumentation when a corrupted term carries
+ * a pointer that may or may not originate from the restored arena.
+ */
+int erts_mmap_record_arena_contains(const void *ptr);
+void erts_mmap_record_arena_bounds(const char **base_out, UWord *size_out);
 
 /*
  * Literal super-carrier snapshot/restore hooks. On record, the literal

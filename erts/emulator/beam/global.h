@@ -1128,6 +1128,24 @@ Uint size_object_x(Eterm, erts_literal_area_t*);
 #define size_object(Term) size_object_x(Term,NULL)
 #define size_object_litopt(Term,LitArea) size_object_x(Term,LitArea)
 
+/*
+ * Replay diagnostic: walk an Eterm and dump every reachable subterm to
+ * stderr, classifying each pointer (ARENA / LITERAL / HEAP) and printing
+ * its header word. Tolerant of malformed terms. Intended to be called
+ * just before a deep-copy that is suspected to crash on a stale arena
+ * pointer (e.g. `ets:insert/2`).
+ */
+void erts_replay_dump_term_to_stderr(Eterm root, const char *ctx, Eterm pid);
+
+/*
+ * Replay correlation flag:
+ *   0 = static NIF reinit phase has not started for current candidate
+ *   1 = currently inside a static NIF load callback (e.g. prim_file)
+ *   2 = a static NIF load callback has returned (sticky after first one)
+ * Defined in erl_nif.c.
+ */
+extern int erts_replay_static_nif_phase;
+
 Uint copy_shared_calculate(Eterm, erts_shcopy_t*);
 Uint size_shared(Eterm);
 

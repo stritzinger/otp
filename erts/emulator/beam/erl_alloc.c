@@ -128,7 +128,9 @@ erts_alloc_struct_should_snapshot(const char *tag)
             || strcmp(tag, "export_table.index_root") == 0
             || strcmp(tag, "fun_table.index_root") == 0
             || strcmp(tag, "code_ix.root") == 0
-            || strcmp(tag, "beam_catches.bccix") == 0);
+            || strcmp(tag, "beam_catches.bccix") == 0
+            || strcmp(tag, "global_literals.empty_tuple") == 0
+            || strcmp(tag, "global_literals.chunk_head") == 0);
 }
 
 static void

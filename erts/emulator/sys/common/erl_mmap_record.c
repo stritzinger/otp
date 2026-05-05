@@ -245,6 +245,27 @@ erts_mmap_record_option_enabled(void)
 }
 
 int
+erts_mmap_record_arena_contains(const void *ptr)
+{
+    if (!record_base) {
+        return 0;
+    }
+    return (const char *) ptr >= record_base
+        && (const char *) ptr < record_base + ERTS_RECORD_ARENA_SIZE;
+}
+
+void
+erts_mmap_record_arena_bounds(const char **base_out, UWord *size_out)
+{
+    if (base_out) {
+        *base_out = record_base;
+    }
+    if (size_out) {
+        *size_out = ERTS_RECORD_ARENA_SIZE;
+    }
+}
+
+int
 erts_mmap_record_init(void)
 {
     const char *path = NULL;

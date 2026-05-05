@@ -42,6 +42,23 @@ extern Eterm ERTS_GLOBAL_LIT_EMPTY_TUPLE;
  */
 void init_global_literals(void);
 
+/*
+ * Replay-only: restore the snapshotted ERTS_GLOBAL_LIT_EMPTY_TUPLE term and
+ * the global_literal_chunk linked-list head from struct-root-dumps.
+ * Returns 1 on success (snapshot loaded and globals updated), 0 if the
+ * snapshot is unavailable.
+ *
+ * When the empty tuple snapshot is restored its boxed pointer references an
+ * address in the record-time arena; the arena is mapped MAP_PRIVATE at
+ * replay so the bytes [0,0] of the empty tuple header survive at the same
+ * virtual address. Without this restore, init_empty_tuple() would create a
+ * fresh empty tuple at a new literal-mmapper address, but every literal map
+ * loaded from beam files still has its `keys` field pointing at the
+ * record-time empty tuple address, which would cause ets:insert deep-copy
+ * to assert (obj == ERTS_GLOBAL_LIT_EMPTY_TUPLE) and crash.
+ */
+int erts_global_literals_apply_replay_root(void);
+
 /* Allocates space for global literals. Users must call erts_global_literal_register
  * when done creating the literal. 
  */

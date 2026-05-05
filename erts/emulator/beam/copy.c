@@ -121,15 +121,30 @@ Uint size_object_x(Eterm obj, erts_literal_area_t *litopt)
                 }
                 hdr = *ptr;
 		ASSERT(is_header(hdr));
-		switch (hdr & _TAG_HEADER_MASK) {
-		case ARITYVAL_SUBTAG:
-		    arity = header_arity(hdr);
-		    if (arity == 0) { /* Empty tuple -- unusual. */
-                        ASSERT(!litopt &&
-                               erts_is_literal(obj,ptr) &&
-                               obj == ERTS_GLOBAL_LIT_EMPTY_TUPLE);
-                        /*
-                          The empty tuple is always a global literal
+			switch (hdr & _TAG_HEADER_MASK) {
+			case ARITYVAL_SUBTAG:
+			    arity = header_arity(hdr);
+			    if (arity == 0) { /* Empty tuple -- unusual. */
+	                        if (!( !litopt
+	                               && erts_is_literal(obj,ptr)
+	                               && obj == ERTS_GLOBAL_LIT_EMPTY_TUPLE)) {
+	                            if (erts_mmap_record_option_replay_enabled()) {
+	                                erts_fprintf(stderr,
+	                                             "replay_copy_debug: arity0 tuple obj=%p ptr=%p hdr=%p lit=%d global_empty=%p litopt=%p pid=%T\n",
+	                                             (void *)(UWord) obj,
+	                                             (void *) ptr,
+	                                             (void *)(UWord) hdr,
+	                                             erts_is_literal(obj, ptr),
+	                                             (void *)(UWord) ERTS_GLOBAL_LIT_EMPTY_TUPLE,
+	                                             (void *) litopt,
+	                                             mypid);
+	                            }
+	                        }
+	                        ASSERT(!litopt &&
+	                               erts_is_literal(obj,ptr) &&
+	                               obj == ERTS_GLOBAL_LIT_EMPTY_TUPLE);
+	                        /*
+	                          The empty tuple is always a global literal
                           constant so it does not take up any extra
                           space.
                         */
@@ -2078,6 +2093,207 @@ void erts_move_multi_frags(Eterm** hpp, ErlOffHeap* off_heap, ErlHeapFragment* f
     for (i=0; i<nrefs; ++i) {
 	refs[i] = follow_moved(refs[i], literal_tag);
     }
+}
+
+/* ====================================================================== *
+ * Replay debug helper: walk an Eterm and dump every reachable subterm
+ * with classification of each pointer (ARENA / LITERAL / HEAP) and its
+ * header word. Useful when a corrupted term is about to be deep-copied
+ * (e.g. into ETS) so we can pinpoint which boxed pointer is stale.
+ *
+ * The walker is intentionally tolerant: it will not abort on bad headers
+ * (it just prints them) so the dump completes even when the input term
+ * is malformed.
+ * ====================================================================== */
+
+static const char *
+replay_classify_ptr(const Eterm *ptr)
+{
+    if (ptr == NULL) {
+        return "NULL";
+    }
+    if (erts_mmap_record_arena_contains(ptr)) {
+        return "ARENA";
+    }
+    if (erts_is_in_literal_range((void *) ptr)) {
+        return "LITERAL";
+    }
+    return "HEAP";
+}
+
+static const char *
+replay_subtag_name(Eterm hdr)
+{
+    if (!is_header(hdr)) {
+        return "NOT-HEADER";
+    }
+    switch (hdr & _TAG_HEADER_MASK) {
+    case ARITYVAL_SUBTAG:           return "TUPLE";
+    case POS_BIG_SUBTAG:            return "POS_BIG";
+    case NEG_BIG_SUBTAG:            return "NEG_BIG";
+    case REF_SUBTAG:                return "REF";
+    case FUN_SUBTAG:                return "FUN";
+    case FLOAT_SUBTAG:              return "FLOAT";
+    case BIN_REF_SUBTAG:            return "BIN_REF";
+    case MAP_SUBTAG:                return "MAP";
+    case EXTERNAL_PID_SUBTAG:       return "EXT_PID";
+    case EXTERNAL_PORT_SUBTAG:      return "EXT_PORT";
+    case EXTERNAL_REF_SUBTAG:       return "EXT_REF";
+    case HEAP_BITS_SUBTAG:          return "HEAP_BITS";
+    case SUB_BITS_SUBTAG:           return "SUB_BITS";
+    default:                        return "UNKNOWN";
+    }
+}
+
+void
+erts_replay_dump_term_to_stderr(Eterm root, const char *ctx, Eterm pid)
+{
+    DECLARE_ESTACK(s);
+    int slot = 0;
+    const int max_slots = 256;
+    const char *base = NULL;
+    UWord arena_size = 0;
+
+    erts_mmap_record_arena_bounds(&base, &arena_size);
+    erts_fprintf(stderr,
+                 "replay_term_dump BEGIN ctx=%s pid=%T root_raw=%p arena=[%p..%p)\n",
+                 ctx, pid, (void *)(UWord) root,
+                 (void *) base,
+                 (void *) (base ? base + arena_size : NULL));
+
+    ESTACK_PUSH(s, root);
+    while (!ESTACK_ISEMPTY(s)) {
+        Eterm obj;
+        if (slot >= max_slots) {
+            erts_fprintf(stderr, "  ... (truncated at %d slots)\n", slot);
+            break;
+        }
+        obj = ESTACK_POP(s);
+        slot++;
+
+        switch (primary_tag(obj)) {
+        case TAG_PRIMARY_IMMED1:
+            erts_fprintf(stderr,
+                         "  [%d] IMM    raw=%p val=%T\n",
+                         slot, (void *)(UWord) obj, obj);
+            break;
+        case TAG_PRIMARY_LIST: {
+            Eterm *ptr = list_val(obj);
+            const char *cls = replay_classify_ptr(ptr);
+            erts_fprintf(stderr,
+                         "  [%d] LIST   raw=%p ptr=%p cls=%s",
+                         slot, (void *)(UWord) obj, (void *) ptr, cls);
+            if (ptr == NULL) {
+                erts_fprintf(stderr, " !!!NULL_LIST_PTR\n");
+                break;
+            }
+            erts_fprintf(stderr, " car=%p cdr=%p\n",
+                         (void *)(UWord) ptr[0],
+                         (void *)(UWord) ptr[1]);
+            ESTACK_PUSH(s, ptr[1]);
+            ESTACK_PUSH(s, ptr[0]);
+            break;
+        }
+        case TAG_PRIMARY_BOXED: {
+            Eterm *ptr = boxed_val(obj);
+            Eterm hdr;
+            const char *cls = replay_classify_ptr(ptr);
+            if (ptr == NULL) {
+                erts_fprintf(stderr,
+                             "  [%d] BOX    raw=%p ptr=NULL !!!NULL_BOX_PTR\n",
+                             slot, (void *)(UWord) obj);
+                break;
+            }
+            hdr = *ptr;
+            erts_fprintf(stderr,
+                         "  [%d] BOX    raw=%p ptr=%p cls=%s hdr=%p kind=%s",
+                         slot, (void *)(UWord) obj, (void *) ptr, cls,
+                         (void *)(UWord) hdr, replay_subtag_name(hdr));
+            if (!is_header(hdr)) {
+                erts_fprintf(stderr, " !!!INVALID_HEADER\n");
+                break;
+            }
+            switch (hdr & _TAG_HEADER_MASK) {
+            case ARITYVAL_SUBTAG: {
+                int arity = header_arity(hdr);
+                int i;
+                erts_fprintf(stderr, " arity=%d\n", arity);
+                if (arity == 0) {
+                    if (obj != ERTS_GLOBAL_LIT_EMPTY_TUPLE) {
+                        erts_fprintf(stderr,
+                                     "       !!!arity-0 tuple is NOT the global "
+                                     "empty literal (global=%p)\n",
+                                     (void *)(UWord) ERTS_GLOBAL_LIT_EMPTY_TUPLE);
+                    }
+                }
+                for (i = arity; i >= 1; i--) {
+                    ESTACK_PUSH(s, ptr[i]);
+                }
+                break;
+            }
+            case MAP_SUBTAG:
+                switch (MAP_HEADER_TYPE(hdr)) {
+                case MAP_HEADER_TAG_FLATMAP_HEAD: {
+                    flatmap_t *mp = (flatmap_t *) flatmap_val(obj);
+                    Uint n = flatmap_get_size(mp);
+                    Eterm *kvs = (Eterm *) mp + 2;
+                    Uint i;
+                    erts_fprintf(stderr, " flatmap_size=%bpu keys=%p\n",
+                                 (UWord) n, (void *)(UWord) mp->keys);
+                    ESTACK_PUSH(s, mp->keys);
+                    for (i = 0; i < n; i++) {
+                        ESTACK_PUSH(s, kvs[n + i]); /* values */
+                    }
+                    break;
+                }
+                case MAP_HEADER_TAG_HAMT_HEAD_BITMAP:
+                case MAP_HEADER_TAG_HAMT_HEAD_ARRAY:
+                case MAP_HEADER_TAG_HAMT_NODE_BITMAP: {
+                    Eterm *head = hashmap_val(obj);
+                    Uint sz = hashmap_bitcount(MAP_HEADER_VAL(hdr));
+                    Uint hdr_arity = header_arity(hdr);
+                    Uint i;
+                    erts_fprintf(stderr, " hashmap_size=%bpu\n", (UWord) sz);
+                    head += 1 + hdr_arity;
+                    for (i = 0; i < sz; i++) {
+                        ESTACK_PUSH(s, head[i]);
+                    }
+                    break;
+                }
+                default:
+                    erts_fprintf(stderr, " bad-map-type\n");
+                    break;
+                }
+                break;
+            case FUN_SUBTAG: {
+                const ErlFunThing *funp = (ErlFunThing *) fun_val(obj);
+                int n = fun_num_free(funp);
+                int i;
+                erts_fprintf(stderr, " fun_free=%d\n", n);
+                for (i = 0; i < n; i++) {
+                    ESTACK_PUSH(s, funp->env[i]);
+                }
+                break;
+            }
+            default:
+                erts_fprintf(stderr, " arityval=%bpu (no recursion)\n",
+                             (UWord) thing_arityval(hdr));
+                break;
+            }
+            break;
+        }
+        case TAG_PRIMARY_HEADER:
+            erts_fprintf(stderr,
+                         "  [%d] HDR    raw=%p (unexpected on stack)\n",
+                         slot, (void *)(UWord) obj);
+            break;
+        }
+    }
+
+    erts_fprintf(stderr,
+                 "replay_term_dump END   ctx=%s pid=%T slots=%d\n",
+                 ctx, pid, slot);
+    DESTROY_ESTACK(s);
 }
 
 static void

@@ -2266,6 +2266,33 @@ static BIF_RETTYPE ets_insert_2_list_driver(Process* p,
     return ret;
 }
 
+/*
+ * Replay diagnostic: dump the term being inserted into ETS to stderr.
+ * Activated only when -replay is in effect AND the env var
+ * ERTS_REPLAY_ETS_INSERT_DEBUG is set. This is meant to identify which
+ * boxed sub-term carries a stale arena pointer, by classifying every
+ * pointer reachable from the inserted term as ARENA / LITERAL / HEAP
+ * and printing its header word.
+ */
+static ERTS_INLINE void
+ets_insert_replay_dump(Process *p, const char *bif_name,
+                       Eterm tab, Eterm obj_or_list)
+{
+    if (!erts_mmap_record_option_replay_enabled()) {
+        return;
+    }
+    if (getenv("ERTS_REPLAY_ETS_INSERT_DEBUG") == NULL) {
+        return;
+    }
+    erts_fprintf(stderr,
+                 "replay_ets_insert: bif=%s pid=%T tab=%T list_or_obj_raw=%p "
+                 "nif_phase=%d\n",
+                 bif_name, p->common.id, tab,
+                 (void *)(UWord) obj_or_list,
+                 erts_replay_static_nif_phase);
+    erts_replay_dump_term_to_stderr(obj_or_list, bif_name, p->common.id);
+}
+
 /* 
 ** The put BIF 
 */
@@ -2277,6 +2304,7 @@ BIF_RETTYPE ets_insert_2(BIF_ALIST_2)
     DbTableMethod* meth;
     SWord consumed_reds = 0;
     CHECK_TABLES();
+    ets_insert_replay_dump(BIF_P, "ets_insert_2", BIF_ARG_1, BIF_ARG_2);
     if (BIF_ARG_2 == NIL) {
         /* Check that the table exists */
         DB_BIF_GET_TABLE(tb, DB_WRITE, LCK_WRITE_REC, BIF_ets_insert_2);
@@ -2324,6 +2352,7 @@ BIF_RETTYPE ets_insert_new_2(BIF_ALIST_2)
     db_lock_kind_t kind;
     SWord consumed_reds = 0;
     CHECK_TABLES();
+    ets_insert_replay_dump(BIF_P, "ets_insert_new_2", BIF_ARG_1, BIF_ARG_2);
 
     if (BIF_ARG_2 == NIL) {
         /* Check that the table exists */

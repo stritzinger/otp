@@ -29,6 +29,7 @@
 #include "global.h"
 #include "module.h"
 #include "beam_catches.h"
+#include "erl_mmap.h"
 
 #ifdef BEAMASM
 #  include "beam_asm.h"
@@ -243,7 +244,8 @@ static struct erl_module_instance *unsealed_module = NULL;
 void erts_unseal_module(struct erl_module_instance *modi) {
     ERTS_LC_ASSERT(erts_initialized == 0 ||
                    erts_thr_progress_is_blocking() ||
-                   erts_has_code_mod_permission());
+                   erts_has_code_mod_permission() ||
+                   erts_mmap_record_option_replay_enabled());
     ASSERT(unsealed_module == NULL && !modi->unsealed);
 
 #ifdef BEAMASM
@@ -262,7 +264,8 @@ void erts_seal_module(struct erl_module_instance *modi)
 {
     ERTS_LC_ASSERT(erts_initialized == 0 ||
                    erts_thr_progress_is_blocking() ||
-                   erts_has_code_mod_permission());
+                   erts_has_code_mod_permission() ||
+                   erts_mmap_record_option_replay_enabled());
     ASSERT(unsealed_module == modi && modi->unsealed == 1);
 
 #ifdef BEAMASM

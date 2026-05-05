@@ -44,6 +44,7 @@
 #include "erl_proc_sig_queue.h"
 #include "beam_common.h"
 #include "beam_bp.h"
+#include "erl_mmap.h"
 
 #define ERTS_INACT_WR_PB_LEAVE_MUCH_LIMIT 1
 #define ERTS_INACT_WR_PB_LEAVE_MUCH_PERCENTAGE 20
@@ -71,6 +72,52 @@
  * Returns number of elements in an array.
  */
 #define ALENGTH(a) (sizeof(a)/sizeof(a[0]))
+
+static int replay_gc_ptr_dbg_inited;
+static int replay_gc_ptr_dbg_enabled;
+static UWord replay_gc_ptr_dbg_min;
+static UWord replay_gc_ptr_dbg_max;
+
+static ERTS_INLINE void
+replay_gc_ptr_dbg_init(void)
+{
+    const char *min_str;
+    const char *max_str;
+    char *endp;
+    unsigned long long v;
+
+    if (replay_gc_ptr_dbg_inited) {
+        return;
+    }
+    replay_gc_ptr_dbg_inited = 1;
+    replay_gc_ptr_dbg_enabled = 0;
+    replay_gc_ptr_dbg_min = 0;
+    replay_gc_ptr_dbg_max = 0;
+
+    min_str = getenv("ERTS_REPLAY_GC_PTR_MIN");
+    max_str = getenv("ERTS_REPLAY_GC_PTR_MAX");
+    if (!min_str || !max_str || !min_str[0] || !max_str[0]) {
+        return;
+    }
+
+    v = strtoull(min_str, &endp, 0);
+    if (!endp || *endp != '\0') {
+        return;
+    }
+    replay_gc_ptr_dbg_min = (UWord) v;
+
+    v = strtoull(max_str, &endp, 0);
+    if (!endp || *endp != '\0') {
+        return;
+    }
+    replay_gc_ptr_dbg_max = (UWord) v;
+    if (replay_gc_ptr_dbg_max < replay_gc_ptr_dbg_min) {
+        UWord tmp = replay_gc_ptr_dbg_min;
+        replay_gc_ptr_dbg_min = replay_gc_ptr_dbg_max;
+        replay_gc_ptr_dbg_max = tmp;
+    }
+    replay_gc_ptr_dbg_enabled = 1;
+}
 
 /* Actual stack usage, note that this may include words in the redzone. */
 # define STACK_SZ_ON_HEAP(p) (STACK_START(p) - STACK_TOP(p))
@@ -2276,6 +2323,35 @@ sweep(Eterm *n_hp, Eterm *n_htop,
 		ASSERT(is_boxed(val));
 		*n_hp++ = val;
 	    } else if (ERTS_IS_IN_SWEEP_AREA(gval, ptr)) {
+                replay_gc_ptr_dbg_init();
+                if (replay_gc_ptr_dbg_enabled) {
+                    UWord p = (UWord) ptr;
+                    if (p >= replay_gc_ptr_dbg_min && p <= replay_gc_ptr_dbg_max) {
+                        int wi;
+                        erts_fprintf(stderr,
+                                     "replay_gc_ptr_dbg: sweep boxed ptr=%p gval=%#lx hdr=%#lx is_header=%d n_hp=%p n_htop=%p\n",
+                                     ptr,
+                                     (unsigned long) gval,
+                                     (unsigned long) val,
+                                     is_header(val) ? 1 : 0,
+                                     n_hp,
+                                     n_htop);
+                        if (is_header(val)) {
+                            erts_fprintf(stderr,
+                                         "replay_gc_ptr_dbg: sweep boxed arity=%ld subtag=%#lx\n",
+                                         (long) header_arity(val),
+                                         (unsigned long) (val & _HEADER_SUBTAG_MASK));
+                        }
+                        for (wi = -4; wi <= 8; wi++) {
+                            Eterm *wp = n_hp + wi;
+                            erts_fprintf(stderr,
+                                         "replay_gc_ptr_dbg: n_hp[%+d] @ %p = %#lx\n",
+                                         wi,
+                                         wp,
+                                         (unsigned long) *wp);
+                        }
+                    }
+                }
 		move_boxed(ptr,val,&n_htop,n_hp++);
 	    } else {
 		n_hp++;

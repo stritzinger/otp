@@ -2803,16 +2803,10 @@ static void prepare_opened_rt(struct erl_module_nif* lib)
 	}
 	else { /* ERL_NIF_RT_TAKEOVER */
 	    steal_resource_type(type);
-            if (erts_mmap_record_option_replay_enabled()
-                && erts_refc_read(&type->owner->refc, 0) < 1) {
-                erts_refc_init(&type->owner->refc, 1);
+            if (!erts_mmap_record_option_replay_enabled()) {
+                ASSERT(erts_refc_read(&type->owner->refc, 1) > 0);
+                ASSERT(erts_refc_read(&type->owner->dynlib_refc, 1) > 0);
             }
-            ASSERT(erts_refc_read(&type->owner->refc, 1) > 0);
-            if (erts_mmap_record_option_replay_enabled()
-                && erts_refc_read(&type->owner->dynlib_refc, 0) < 1) {
-                erts_refc_init(&type->owner->dynlib_refc, 1);
-            }
-            ASSERT(erts_refc_read(&type->owner->dynlib_refc, 1) > 0);
 
             /*
              * Prepare for atomic change of callbacks with lock-wrappers
@@ -5051,7 +5045,8 @@ static void patch_call_nif_early(ErlNifEntry* entry,
 {
     int i;
 
-    ERTS_LC_ASSERT(erts_has_code_mod_permission());
+    ERTS_LC_ASSERT(erts_has_code_mod_permission()
+                   || erts_mmap_record_option_replay_enabled());
     ERTS_LC_ASSERT(erts_lc_rwmtx_is_rwlocked(&erts_nif_call_tab_lock));
 
     erts_unseal_module(this_mi);
@@ -5332,24 +5327,166 @@ static ErtsStaticNif* is_static_nif_module(Eterm mod_atom)
 static int
 replay_should_reinit_static_nif(const ErlNifEntry* entry)
 {
-    return sys_strcmp(entry->name, "prim_tty") == 0
-        || sys_strcmp(entry->name, "erl_tracer") == 0
-        || sys_strcmp(entry->name, "prim_buffer") == 0
-        || sys_strcmp(entry->name, "prim_file") == 0
-        || sys_strcmp(entry->name, "zlib") == 0
-        || sys_strcmp(entry->name, "zstd") == 0;
+    /*
+     * All static NIFs need their load() callback re-run at replay time so
+     * any C-side state (resource types, atom tables, lookup tables, ...)
+     * is rebuilt against the current VM. Skipping one historically caused
+     * tty_create_nif (prim_tty) to dereference a NULL resource type during
+     * shell startup. The set of statically-linked NIFs is small and fixed
+     * (prim_tty, erl_tracer, prim_buffer, prim_file, zlib, zstd,
+     * prim_socket, prim_net), so re-running their load callbacks is cheap.
+     */
+    (void) entry;
+    return 1;
 }
+
+static int
+replay_install_static_nif_call_stubs(struct erl_module_nif* lib,
+                                     struct erl_module_instance* mi)
+{
+    ErlNifEntry *entry = &lib->entry;
+    ErtsNifFinish *fin;
+    Eterm f_atom;
+    int i;
+    Uint miss_hash = 0;
+    const int replay_dbg = !!getenv("ERTS_REPLAY_NIF_DEBUG");
+
+    fin = erts_alloc(ERTS_ALC_T_NIF, sizeof_ErtsNifFinish(entry->num_of_funcs));
+    fin->nstubs_hashed = 0;
+
+    erts_rwmtx_rwlock(&erts_nif_call_tab_lock);
+    for (i = 0; i < entry->num_of_funcs; i++) {
+        int func_ix;
+        const ErtsCodeInfo *ci;
+        ErtsNifBeamStub tmpl;
+        ErtsNifBeamStub *stub = &fin->beam_stubv[i];
+        ErlNifFunc *f = &entry->funcs[i];
+
+        if (!erts_atom_get(f->name, sys_strlen(f->name), &f_atom, ERTS_ATOM_ENC_LATIN1)
+            || (func_ix = get_func_ix(mi->code_hdr, f_atom, f->arity)) < 0) {
+            continue;
+        }
+
+        ci = mi->code_hdr->functions[func_ix];
+        stub->code_info_ptr = ci;
+        stub->info = *ci;
+
+        tmpl.code_info_ptr = ci;
+        if (hash_get(&erts_nif_call_tab, &tmpl) != NULL) {
+            hash_erase(&erts_nif_call_tab, &tmpl);
+        }
+        if (hash_put(&erts_nif_call_tab, stub) != stub) {
+            miss_hash++;
+            continue;
+        }
+        fin->nstubs_hashed++;
+
+#ifdef BEAMASM
+        {
+            void* normal_fptr;
+            void* dirty_fptr;
+
+            if (f->flags) {
+                if (f->flags == ERL_NIF_DIRTY_JOB_IO_BOUND) {
+                    normal_fptr = static_schedule_dirty_io_nif;
+                } else {
+                    normal_fptr = static_schedule_dirty_cpu_nif;
+                }
+                dirty_fptr = f->fptr;
+            } else {
+                dirty_fptr = NULL;
+                normal_fptr = f->fptr;
+            }
+
+            beamasm_emit_call_nif(ci,
+                                  normal_fptr,
+                                  lib,
+                                  dirty_fptr,
+                                  (char *)&stub->info,
+                                  sizeof(stub->info) + sizeof(stub->code));
+        }
+#else
+        stub->code.call_nif[0] = BeamOpCodeAddr(op_call_nif_WWW);
+        stub->code.call_nif[2] = (BeamInstr) lib;
+
+        if (f->flags) {
+            stub->code.call_nif[3] = (BeamInstr) f->fptr;
+            stub->code.call_nif[1] =
+                (f->flags == ERL_NIF_DIRTY_JOB_IO_BOUND)
+                ? (BeamInstr) static_schedule_dirty_io_nif
+                : (BeamInstr) static_schedule_dirty_cpu_nif;
+        } else {
+            stub->code.call_nif[1] = (BeamInstr) f->fptr;
+        }
+#endif
+    }
+    if (fin->nstubs_hashed == 0) {
+        if (replay_dbg) {
+            erts_fprintf(stderr,
+                         "replay_nif: stubs_failed module=%s looked_up=0 hash_fail=%bpu\n",
+                         entry->name, miss_hash);
+        }
+        erts_rwmtx_rwunlock(&erts_nif_call_tab_lock);
+        erts_free(ERTS_ALC_T_NIF, fin);
+        return 0;
+    }
+    if (replay_dbg) {
+        erts_fprintf(stderr,
+                     "replay_nif: stubs_ok module=%s count=%d\n",
+                     entry->name, fin->nstubs_hashed);
+    }
+    patch_call_nif_early(entry, mi);
+    erts_rwmtx_rwunlock(&erts_nif_call_tab_lock);
+    lib->finish = fin;
+    return 1;
+}
+
+static struct erl_module_nif *
+replay_create_static_nif_lib(Module *module_p, ErlNifEntry *entry)
+{
+    struct erl_module_nif *lib;
+
+    lib = create_lib(entry);
+    lib->handle = NULL;
+    erts_refc_init(&lib->refc, 2);
+    erts_refc_init(&lib->dynlib_refc, 1);
+    lib->flags = 0;
+    lib->on_halt.callback = NULL;
+    lib->unload_thr_callback = NULL;
+    erts_atomic_init_nob(&lib->unload_thr_counter, -1);
+    lib->mod = module_p;
+    lib->mi_copy = module_p->curr;
+    lib->priv_data = NULL;
+    lib->finish = NULL;
+
+    if (!replay_install_static_nif_call_stubs(lib, &module_p->curr)) {
+        erts_free(ERTS_ALC_T_NIF, lib);
+        return NULL;
+    }
+    return lib;
+}
+
+/*
+ * Replay-time correlation flag used by ETS / copy diagnostics:
+ *   0 = static NIF replay reinit has not run / not active for current entry
+ *   1 = currently inside a static NIF load callback (e.g. prim_file:load/3)
+ *   2 = a static NIF load callback has already returned (sticky once any
+ *       reinit finishes, so later corruption can be tied back to it)
+ */
+int erts_replay_static_nif_phase = 0;
 
 void
 erts_replay_reinit_loaded_static_nifs(void)
 {
     ErtsStaticNif* p;
+    const int replay_dbg = !!getenv("ERTS_REPLAY_NIF_DEBUG");
 
     for (p = erts_static_nif_tab; p->nif_init != NULL; p++) {
         Module* module_p;
         struct erl_module_nif* lib;
         ErlNifEntry* entry = p->entry;
-        ErlNifEnv env;
+        struct enif_msg_environment_t msg_env;
+        ErlNifEnv *env;
         void* priv_data;
         Eterm load_arg = SMALL_ZERO;
         int veto;
@@ -5358,18 +5495,44 @@ erts_replay_reinit_loaded_static_nifs(void)
             || !replay_should_reinit_static_nif(entry)) {
             continue;
         }
+        if (replay_dbg) {
+            erts_fprintf(stderr, "replay_nif: candidate=%s\n", entry->name);
+        }
 
         module_p = erts_get_module(p->mod_atom, erts_active_code_ix());
-        if (module_p == NULL || module_p->curr.nif == NULL)
+        if (module_p == NULL || module_p->curr.code_hdr == NULL) {
+            if (replay_dbg) {
+                erts_fprintf(stderr,
+                             "replay_nif: skip=%s reason=no_module_or_code\n",
+                             entry->name);
+            }
             continue;
+        }
 
-        lib = module_p->curr.nif;
-        lib->mod = module_p;
+        lib = replay_create_static_nif_lib(module_p, entry);
+        if (lib == NULL) {
+            if (replay_dbg) {
+                erts_fprintf(stderr,
+                             "replay_nif: skip=%s reason=create_lib_failed\n",
+                             entry->name);
+            }
+            continue;
+        }
+        /*
+         * Mirror normal load_nif flow: from this point on, use the
+         * normalized entry copy embedded in `lib`.
+         */
+        entry = &lib->entry;
+        if (replay_dbg) {
+            erts_fprintf(stderr,
+                         "replay_nif: install=%s lib=%p\n",
+                         entry->name, lib);
+        }
 
         ASSERT(opened_rt_list == NULL);
 
-        sys_memzero(&env, sizeof(env));
-        env.mod_nif = lib;
+        env = &msg_env.env;
+        pre_nif_noproc(&msg_env, lib, NULL);
         priv_data = lib->priv_data;
 
         lib->flags |= ERTS_MOD_NIF_FLG_LOADING;
@@ -5377,16 +5540,45 @@ erts_replay_reinit_loaded_static_nifs(void)
             && is_internal_pid(erts_init_process_id)) {
             load_arg = erts_init_process_id;
         }
-        veto = entry->load(&env, &priv_data, load_arg);
+        erts_replay_static_nif_phase = 1;
+        if (replay_dbg) {
+            erts_fprintf(stderr,
+                         "replay_nif: load_callback_enter module=%s arg=%T\n",
+                         entry->name, load_arg);
+        }
+        veto = entry->load(env, &priv_data, load_arg);
+        if (replay_dbg) {
+            erts_fprintf(stderr,
+                         "replay_nif: load_callback_exit  module=%s veto=%d\n",
+                         entry->name, veto);
+        }
+        erts_replay_static_nif_phase = 2;
+        post_nif_noproc(&msg_env);
         lib->flags &= ~ERTS_MOD_NIF_FLG_LOADING;
 
         if (veto) {
+            /*
+             * NIF load() reported failure during replay. Common reasons:
+             *   - an I/O subsystem (e.g. prim_socket esock_io) refusing
+             *     a second init,
+             *   - a one-shot enif_set_option() rejecting a duplicate call.
+             * Don't abort: the existing call stubs from the restored
+             * module table still resolve to functioning code, so leaving
+             * this NIF without a fresh re-load is much better than killing
+             * the whole VM. We just rollback any partially-opened resource
+             * types (which would otherwise leak in a half-installed
+             * state) and keep going.
+             */
             rollback_opened_resource_types();
-            erts_exit(ERTS_ABORT_EXIT,
-                      "replay static NIF load callback failed for %T\n",
-                      p->mod_atom);
+            cleanup_opened_rt();
+            erts_fprintf(stderr,
+                         "replay static NIF load callback returned veto=%d "
+                         "for %T; continuing without re-load\n",
+                         veto, p->mod_atom);
+            continue;
         }
 
+        module_p->curr.nif = lib;
         lib->priv_data = priv_data;
         prepare_opened_rt(lib);
 
