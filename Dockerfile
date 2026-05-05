@@ -32,3 +32,33 @@ RUN set -xe \
 	&& rm -rf /var/lib/apt/lists/*
 
 CMD ["erl"]
+
+# extra useful tools here: rebar & rebar3
+
+ENV REBAR_VERSION="2.6.4"
+
+RUN set -xe \
+	&& REBAR_DOWNLOAD_URL="https://github.com/rebar/rebar/archive/${REBAR_VERSION}.tar.gz" \
+	&& REBAR_DOWNLOAD_SHA256="577246bafa2eb2b2c3f1d0c157408650446884555bf87901508ce71d5cc0bd07" \
+	&& mkdir -p /usr/src/rebar-src \
+	&& curl -fSL -o rebar-src.tar.gz "$REBAR_DOWNLOAD_URL" \
+	&& echo "$REBAR_DOWNLOAD_SHA256 rebar-src.tar.gz" | sha256sum -c - \
+	&& tar -xzf rebar-src.tar.gz -C /usr/src/rebar-src --strip-components=1 \
+	&& rm rebar-src.tar.gz \
+	&& cd /usr/src/rebar-src \
+	&& ./bootstrap \
+	&& install -v ./rebar /usr/local/bin/ \
+	&& rm -rf /usr/src/rebar-src
+
+RUN set -xe \
+	&& REBAR3_DOWNLOAD_URL="https://github.com/erlang/rebar3/archive/${REBAR3_VERSION}.tar.gz" \
+	&& REBAR3_DOWNLOAD_SHA256="a151dc4a07805490e9f217a099e597ac9774814875f55da2c66545c333fdff64" \
+	&& mkdir -p /usr/src/rebar3-src \
+	&& curl -fSL -o rebar3-src.tar.gz "$REBAR3_DOWNLOAD_URL" \
+	&& echo "$REBAR3_DOWNLOAD_SHA256 rebar3-src.tar.gz" | sha256sum -c - \
+	&& tar -xzf rebar3-src.tar.gz -C /usr/src/rebar3-src --strip-components=1 \
+	&& rm rebar3-src.tar.gz \
+	&& cd /usr/src/rebar3-src \
+	&& HOME=$PWD ./bootstrap \
+	&& install -v ./rebar3 /usr/local/bin/ \
+	&& rm -rf /usr/src/rebar3-src
