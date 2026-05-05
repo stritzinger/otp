@@ -178,6 +178,17 @@ void erts_init_fun_table_replay(IndexTable *roots, int no_roots)
         fun_tables[i].htable.fun = f;
         erts_index_rebuild_hash_buckets(&fun_tables[i]);
     }
+
+    /*
+     * In debug builds the template tracks whether staging is active via
+     * fun_debug_stage_ix: ~0 means idle, anything else means in-progress.
+     * The BSS zero-initialised value (0) is not the idle sentinel, so reset
+     * it here – replay skips the normal start_staging/end_staging cycle that
+     * would otherwise leave it at ~0.
+     */
+#ifdef DEBUG
+    fun_debug_stage_ix = ~0;
+#endif
 }
 
 void erts_fun_info(fmtfn_t to, void *to_arg)

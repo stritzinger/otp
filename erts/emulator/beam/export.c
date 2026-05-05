@@ -179,6 +179,17 @@ init_export_table_replay(IndexTable *roots, int no_roots)
         export_tables[i].htable.fun = f;
         erts_index_rebuild_hash_buckets(&export_tables[i]);
     }
+
+    /*
+     * In debug builds the staged-table template tracks whether staging is
+     * active via export_debug_stage_ix (~0 = idle). BSS leaves it at 0,
+     * which is not the idle sentinel; replay skips the normal staging cycle
+     * so we must reset it here to prevent spurious assertion failures when
+     * compile:file later triggers erts_start_staging_code_ix.
+     */
+#ifdef DEBUG
+    export_debug_stage_ix = ~0;
+#endif
 }
 
 void

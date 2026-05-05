@@ -92,9 +92,7 @@ Uint size_object_x(Eterm obj, erts_literal_area_t *litopt)
     int arity;
     Eterm *lit_purge_ptr = litopt ? litopt->lit_purge_ptr : NULL;
     Uint   lit_purge_sz  = litopt ? litopt->lit_purge_sz  : 0;
-#ifdef DEBUG
     Eterm mypid = erts_get_current_pid();
-#endif
     DECLARE_ESTACK(s);
     VERBOSE(DEBUG_SHCOPY, ("[pid=%T] size_object %p\n", mypid, obj));
 

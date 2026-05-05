@@ -50,6 +50,10 @@ erts_rwmtx_t the_old_code_rwlocks[ERTS_NUM_CODE_IX];
 
 static erts_atomic_t tot_module_bytes;
 
+#ifdef DEBUG
+static ErtsCodeIndex dbg_load_code_ix = 0;
+#endif
+
 /* SMP note: Active module table lookup and current module instance can be
  *           read without any locks. Old module instances are protected by
  *           "the_old_code_rwlocks" as purging is done on active module table.
@@ -160,6 +164,13 @@ init_module_table_replay(IndexTable *roots, int no_roots)
             ERTS_LOCK_FLAGS_PROPERTY_STATIC | ERTS_LOCK_FLAGS_CATEGORY_GENERIC);
     }
     erts_atomic_init_nob(&tot_module_bytes, 0);
+
+    /*
+     * module_start_staging() asserts dbg_load_code_ix == -1 (the idle
+     * sentinel). BSS leaves it at 0; replay skips the normal staging cycle
+     * that resets it, so do so explicitly here.
+     */
+    IF_DEBUG(dbg_load_code_ix = -1);
 }
 
 Module*
@@ -295,10 +306,6 @@ int module_table_sz(void)
 {
     return erts_atomic_read_nob(&tot_module_bytes);
 }
-
-#ifdef DEBUG
-static ErtsCodeIndex dbg_load_code_ix = 0;
-#endif
 
 static int entries_at_start_staging = 0;
 
