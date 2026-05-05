@@ -358,8 +358,27 @@ erl_init(int ncpu,
     erl_sys_late_init();
     packet_parser_init();
     erl_nif_init();
-    if (erts_mmap_record_option_replay_enabled())
+    if (erts_mmap_record_option_replay_enabled()) {
+#ifdef ERTS_ENABLE_LOCK_CHECK
+        /*
+         * replay static NIF reinit invokes NIF load callbacks that expect to
+         * run with code modification permissions from a managed scheduler/aux
+         * context. During erl_init() we're on the unmanaged startup thread,
+         * so lock checking will abort.
+         */
+        if (getenv("ERTS_REPLAY_FORCE_STATIC_NIF_REINIT")) {
+            ErtsThrPrgrDelayHandle replay_nif_dhndl;
+            replay_nif_dhndl = erts_thr_progress_unmanaged_delay();
+            erts_replay_reinit_loaded_static_nifs();
+            erts_thr_progress_unmanaged_continue(replay_nif_dhndl);
+        }
+#else
+        ErtsThrPrgrDelayHandle replay_nif_dhndl;
+        replay_nif_dhndl = erts_thr_progress_unmanaged_delay();
         erts_replay_reinit_loaded_static_nifs();
+        erts_thr_progress_unmanaged_continue(replay_nif_dhndl);
+#endif
+    }
     erts_msacc_init();
     beamfile_init();
     erts_late_init_external();
@@ -2837,7 +2856,10 @@ erl_start(int argc, char **argv)
 	     db_spin_count);
 
     if (erts_mmap_record_option_replay_enabled()) {
+        ErtsThrPrgrDelayHandle replay_validate_dhndl;
+        replay_validate_dhndl = erts_thr_progress_unmanaged_delay();
         validate_replay_module_tables();
+        erts_thr_progress_unmanaged_continue(replay_validate_dhndl);
         /*
          * Rebuild the per-module PC range table from the restored module
          * table. load_preloaded() (which normally calls erts_update_ranges()

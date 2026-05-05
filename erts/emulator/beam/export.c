@@ -346,7 +346,6 @@ void erts_export_replay_repair_all_lambdas(void)
     count = export_list_size(code_ix);
     for (i = 0; i < count; i++) {
         Export *ep = export_list(i, code_ix);
-        ErlFunThing *funp;
 
         if (!ep) {
             continue;
@@ -358,10 +357,5 @@ void erts_export_replay_repair_all_lambdas(void)
          * lambda from current export metadata instead.
          */
         create_shared_lambda(ep);
-        if (is_boxed(ep->lambda)) {
-            funp = (ErlFunThing *) fun_val(ep->lambda);
-            funp->thing_word = MAKE_FUN_HEADER(ep->info.mfa.arity, 0, 1);
-            funp->entry.exp = ep;
-        }
     }
 }

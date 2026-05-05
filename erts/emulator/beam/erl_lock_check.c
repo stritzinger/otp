@@ -194,6 +194,8 @@ static erts_lc_lock_order_t erts_lock_order[] = {
     {"erts_alloc_hard_debug",		        NULL},
     {"hard_dbg_mseg",		                NULL},
     {"jit_debug_descriptor",		        NULL},
+    {"mmap_record",                           NULL},
+    {"mmap_record_literal",                   NULL},
     {"erts_mmap",				NULL},
 #ifdef ERTS_ENSURE_OS_MONOTONIC_TIME
     {"ensure_os_monotonic_time",                NULL},
