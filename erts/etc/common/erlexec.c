@@ -809,6 +809,18 @@ int main(int argc, char **argv)
 		    }
 		    break;
 
+		  case 'r':
+		    if (strcmp(argv[i], "-record") == 0
+			|| strcmp(argv[i], "-replay") == 0) {
+			NEXT_ARG_CHECK();
+			add_Eargs(argv[i]);
+			add_Eargs(argv[i+1]);
+			i++;
+		    } else {
+			add_arg(argv[i]);
+		    }
+		    break;
+
 		  case 's':	/* -sname NAME */
 		    if (strcmp(argv[i], "-sname") == 0) {
                         NEXT_ARG_CHECK();
@@ -1036,8 +1048,16 @@ int main(int argc, char **argv)
 		      }
 		      break;
 		  case 'r':
-		      if (!is_one_of_strings(&argv[i][2],
-					     plusr_val_switches))
+		      if (strcmp(argv[i], "+record") == 0
+			  || strcmp(argv[i], "+replay") == 0) {
+                          NEXT_ARG_CHECK();
+			  argv[i][0] = '-';
+			  add_Eargs(argv[i]);
+			  add_Eargs(argv[i+1]);
+			  i++;
+		      }
+		      else if (!is_one_of_strings(&argv[i][2],
+						  plusr_val_switches))
 			  goto the_default;
 		      else {
                           NEXT_ARG_CHECK();
