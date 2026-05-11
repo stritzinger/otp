@@ -120,6 +120,43 @@ static int erts_alloc_struct_snapshot_count = 0;
 static char erts_alloc_struct_snapshot_dir[512] = {0};
 
 static int
+erts_alloc_struct_ensure_dir_path(const char *dir)
+{
+    char path[1024];
+    size_t i, len;
+
+    if (!dir || dir[0] == '\0') {
+        return -1;
+    }
+
+    len = strlen(dir);
+    if (len >= sizeof(path)) {
+        return -1;
+    }
+
+    memcpy(path, dir, len + 1);
+
+    for (i = 1; i < len; i++) {
+        if (path[i] == '/' || path[i] == '\\') {
+            char saved = path[i];
+            path[i] = '\0';
+            if (path[i - 1] != ':'
+                && mkdir(path, 0777) < 0
+                && errno != EEXIST) {
+                return -1;
+            }
+            path[i] = saved;
+        }
+    }
+
+    if (mkdir(path, 0777) < 0 && errno != EEXIST) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int
 erts_alloc_struct_should_snapshot(const char *tag)
 {
     return tag
@@ -179,7 +216,7 @@ erts_alloc_struct_dump_snapshots_on_exit(void)
         return;
     }
 
-    if (mkdir(erts_alloc_struct_snapshot_dir, 0777) < 0 && errno != EEXIST) {
+    if (erts_alloc_struct_ensure_dir_path(erts_alloc_struct_snapshot_dir) != 0) {
         return;
     }
 
@@ -903,18 +940,18 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
     {
         const char *trace_path = getenv("ERTS_ALLOC_TRACE_FILE");
         const char *csv_path = getenv("ERTS_ALLOC_STRUCT_CSV_FILE");
-        const char *dump_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+        const char *rr_dir = erts_mmap_record_option_dir();
         if (trace_path && trace_path[0] != '\0') {
             erts_alloc_trace_fd = open(trace_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
         }
         if (csv_path && csv_path[0] != '\0') {
             erts_alloc_struct_csv_fd = open(csv_path, O_WRONLY|O_CREAT|O_APPEND, 0666);
         }
-        if (dump_dir && dump_dir[0] != '\0') {
+        if (rr_dir && rr_dir[0] != '\0') {
             erts_snprintf(erts_alloc_struct_snapshot_dir,
                           sizeof(erts_alloc_struct_snapshot_dir),
-                          "%s",
-                          dump_dir);
+                          "%s/struct-root-dumps",
+                          rr_dir);
         } else {
             erts_snprintf(erts_alloc_struct_snapshot_dir,
                           sizeof(erts_alloc_struct_snapshot_dir),

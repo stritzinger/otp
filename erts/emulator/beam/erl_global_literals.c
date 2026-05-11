@@ -261,7 +261,7 @@ init_global_literals(void)
 int
 erts_global_literals_apply_replay_root(void)
 {
-    const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+    const char *base_dir = NULL;
     char dir_buf[512];
     char manifest_path[1024];
     FILE *mf;
@@ -269,8 +269,14 @@ erts_global_literals_apply_replay_root(void)
     int loaded_empty_tuple = 0;
     int loaded_chunk_head = 0;
 
-    if (!base_dir || base_dir[0] == '\0') {
-        base_dir = "_mmap-records/struct-root-dumps";
+    {
+        const char *rr_dir = erts_mmap_record_option_dir();
+        if (rr_dir && rr_dir[0] != '\0') {
+            erts_snprintf(dir_buf, sizeof(dir_buf), "%s/struct-root-dumps", rr_dir);
+            base_dir = dir_buf;
+        } else {
+            base_dir = "_mmap-records/struct-root-dumps";
+        }
     }
     erts_snprintf(dir_buf, sizeof(dir_buf), "%s", base_dir);
     erts_snprintf(manifest_path, sizeof(manifest_path),

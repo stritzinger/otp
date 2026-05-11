@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 #ifdef HAVE_SYS_MMAN_H
 #  include <sys/mman.h>
 #endif
@@ -37,6 +38,7 @@
 #if HAVE_ERTS_MMAP
 
 #define ERTS_RECORD_ARENA_SIZE (UWORD_CONSTANT(100) * 1024 * 1024)
+#define ERTS_RECORD_ARENA_FILE "mseg-arena.bin"
 
 typedef struct ErtsMMapRecordChunk_ ErtsMMapRecordChunk;
 struct ErtsMMapRecordChunk_ {
@@ -52,11 +54,103 @@ static int replay_enabled = 0;
 static int record_initialized = 0;
 static int record_fd = -1;
 static char *record_base = NULL;
+static char *record_dir = NULL;
+static char *replay_dir = NULL;
 static char *record_path = NULL;
 static char *replay_path = NULL;
 static ErtsMMapRecordChunk *record_chunks = NULL;
 static erts_mtx_t record_mtx;
 static int record_mtx_inited = 0;
+
+static char *
+copy_trimmed_dir(const char *path)
+{
+    size_t len;
+    char *copy;
+
+    if (!path || !path[0]) {
+        return NULL;
+    }
+
+    len = strlen(path);
+    while (len > 1 && (path[len - 1] == '/' || path[len - 1] == '\\')) {
+        if (len == 3 && path[1] == ':') {
+            break;
+        }
+        len--;
+    }
+
+    copy = (char *) malloc(len + 1);
+    if (!copy) {
+        return NULL;
+    }
+    memcpy(copy, path, len);
+    copy[len] = '\0';
+    return copy;
+}
+
+static int
+ensure_dir_path(const char *dir)
+{
+    char path[1024];
+    size_t i, len;
+
+    if (!dir || dir[0] == '\0') {
+        return -1;
+    }
+
+    len = strlen(dir);
+    if (len >= sizeof(path)) {
+        return -1;
+    }
+
+    memcpy(path, dir, len + 1);
+
+    for (i = 1; i < len; i++) {
+        if (path[i] == '/' || path[i] == '\\') {
+            char saved = path[i];
+            path[i] = '\0';
+            if (path[i - 1] != ':'
+                && mkdir(path, 0777) < 0
+                && errno != EEXIST) {
+                return -1;
+            }
+            path[i] = saved;
+        }
+    }
+
+    if (mkdir(path, 0777) < 0 && errno != EEXIST) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static char *
+join_dir_file(const char *dir, const char *name)
+{
+    size_t dlen, nlen, need_sep, sz;
+    char *res;
+
+    if (!dir || !name) {
+        return NULL;
+    }
+
+    dlen = strlen(dir);
+    nlen = strlen(name);
+    need_sep = dlen > 0 && dir[dlen - 1] != '/' && dir[dlen - 1] != '\\';
+    sz = dlen + need_sep + nlen + 1;
+    res = (char *) malloc(sz);
+    if (!res) {
+        return NULL;
+    }
+    if (need_sep) {
+        erts_snprintf(res, sz, "%s/%s", dir, name);
+    } else {
+        erts_snprintf(res, sz, "%s%s", dir, name);
+    }
+    return res;
+}
 
 /*
  * Literal super-carrier snapshot tracking.
@@ -68,7 +162,8 @@ static int record_mtx_inited = 0;
  * To replay correctly we track every live (ptr, size) region handed out by
  * erts_alcu_mmapper_mseg_alloc / _realloc, and at process exit we dump those
  * regions (their raw bytes) to a sidecar file next to the main record arena
- * (<record-arena>.literals). On replay, after the literal mmapper has been
+ * (<record-dir>/mseg-arena.bin.literals). On replay, after the literal
+ * mmapper has been
  * set up (so the same virtual range is reserved), we read the sidecar and
  * memcpy bytes back at their original addresses.
  */
@@ -178,24 +273,51 @@ record_merge_with_neighbors(ErtsMMapRecordChunk *c)
 int
 erts_mmap_record_option_record(const char *path)
 {
-    char *copy;
-    size_t len;
+    char *dir;
+    char *arena_path;
+    char *dump_dir;
 
     if (!path || !path[0] || replay_enabled) {
         return 0;
     }
 
-    len = strlen(path);
-    copy = (char *) malloc(len + 1);
-    if (!copy) {
+    dir = copy_trimmed_dir(path);
+    if (!dir) {
         return 0;
     }
-    memcpy(copy, path, len + 1);
+
+    if (ensure_dir_path(dir) != 0) {
+        free(dir);
+        return 0;
+    }
+
+    dump_dir = join_dir_file(dir, "struct-root-dumps");
+    if (!dump_dir) {
+        free(dir);
+        return 0;
+    }
+    if (ensure_dir_path(dump_dir) != 0) {
+        free(dump_dir);
+        free(dir);
+        return 0;
+    }
+    free(dump_dir);
+
+    arena_path = join_dir_file(dir, ERTS_RECORD_ARENA_FILE);
+    if (!arena_path) {
+        free(dir);
+        return 0;
+    }
+
+    if (record_dir) {
+        free(record_dir);
+    }
+    record_dir = dir;
 
     if (record_path) {
         free(record_path);
     }
-    record_path = copy;
+    record_path = arena_path;
 
     record_enabled = 1;
     return 1;
@@ -204,24 +326,33 @@ erts_mmap_record_option_record(const char *path)
 int
 erts_mmap_record_option_replay(const char *path)
 {
-    char *copy;
-    size_t len;
+    char *dir;
+    char *arena_path;
 
     if (!path || !path[0] || record_enabled) {
         return 0;
     }
 
-    len = strlen(path);
-    copy = (char *) malloc(len + 1);
-    if (!copy) {
+    dir = copy_trimmed_dir(path);
+    if (!dir) {
         return 0;
     }
-    memcpy(copy, path, len + 1);
+
+    arena_path = join_dir_file(dir, ERTS_RECORD_ARENA_FILE);
+    if (!arena_path) {
+        free(dir);
+        return 0;
+    }
+
+    if (replay_dir) {
+        free(replay_dir);
+    }
+    replay_dir = dir;
 
     if (replay_path) {
         free(replay_path);
     }
-    replay_path = copy;
+    replay_path = arena_path;
     replay_enabled = 1;
     return 1;
 }
@@ -242,6 +373,18 @@ int
 erts_mmap_record_option_enabled(void)
 {
     return record_enabled || replay_enabled;
+}
+
+const char *
+erts_mmap_record_option_dir(void)
+{
+    if (record_enabled) {
+        return record_dir;
+    }
+    if (replay_enabled) {
+        return replay_dir;
+    }
+    return NULL;
 }
 
 int

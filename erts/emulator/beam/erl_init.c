@@ -394,7 +394,7 @@ restore_struct_roots_for_replay(IndexTable *atom_root,
                                 IndexTable *export_roots,
                                 IndexTable *fun_roots)
 {
-    const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+    const char *base_dir = NULL;
     char dir_buf[512];
     char manifest_path[1024];
     FILE *mf = NULL;
@@ -404,8 +404,14 @@ restore_struct_roots_for_replay(IndexTable *atom_root,
     int fun_ix = 0;
     int have_atom = 0;
 
-    if (!base_dir || base_dir[0] == '\0') {
-        base_dir = "_mmap-records/struct-root-dumps";
+    {
+        const char *rr_dir = erts_mmap_record_option_dir();
+        if (rr_dir && rr_dir[0] != '\0') {
+            erts_snprintf(dir_buf, sizeof(dir_buf), "%s/struct-root-dumps", rr_dir);
+            base_dir = dir_buf;
+        } else {
+            base_dir = "_mmap-records/struct-root-dumps";
+        }
     }
     erts_snprintf(dir_buf, sizeof(dir_buf), "%s", base_dir);
     erts_snprintf(manifest_path, sizeof(manifest_path), "%s/roots.csv", dir_buf);
@@ -782,8 +788,8 @@ __decl_noreturn void __noreturn  erts_usage(void)
     int this_rel = this_rel_num();
     erts_fprintf(stderr, "Usage: %s [flags] [ -- [init_args] ]\n", progname(program));
     erts_fprintf(stderr, "The flags are:\n\n");
-    erts_fprintf(stderr, "-record path   create/use a file-backed 100MB mmap arena for mseg carriers\n");
-    erts_fprintf(stderr, "-replay path   reuse an existing 100MB mmap arena file (mutually exclusive with -record)\n");
+    erts_fprintf(stderr, "-record dir    record into <dir>/mseg-arena.bin (creates missing subdirectories)\n");
+    erts_fprintf(stderr, "-replay dir    replay from <dir>/mseg-arena.bin (mutually exclusive with -record)\n");
     erts_fprintf(stderr, "-a size        suggest stack size in kilo words for threads\n");
     erts_fprintf(stderr, "               in the async-thread pool; valid range is [%d-%d]\n",
 		 ERTS_ASYNC_THREAD_MIN_STACK_SIZE,
@@ -1131,7 +1137,7 @@ early_init(int *argc, char **argv) /*
                     erts_usage();
                 }
                 if (!erts_mmap_record_init()) {
-                    erts_fprintf(stderr, "failed to initialize -record mmap arena at %s\n", path);
+                    erts_fprintf(stderr, "failed to initialize -record mmap arena directory %s\n", path);
                     erts_usage();
                 }
                 i++;
@@ -1144,7 +1150,7 @@ early_init(int *argc, char **argv) /*
                     erts_usage();
                 }
                 if (!erts_mmap_record_init()) {
-                    erts_fprintf(stderr, "failed to initialize -replay mmap arena from %s\n", path);
+                    erts_fprintf(stderr, "failed to initialize -replay mmap arena directory %s\n", path);
                     erts_usage();
                 }
                 i++;
@@ -2859,15 +2865,21 @@ erl_start(int argc, char **argv)
          * and do not need separate restoration.
          */
         {
-            const char *base_dir = getenv("ERTS_ALLOC_STRUCT_DUMP_DIR");
+            const char *base_dir = NULL;
             char dir_buf[512];
             char manifest_path[1024];
             FILE *mf;
             char line[1024];
             int loaded = 0;
 
-            if (!base_dir || base_dir[0] == '\0') {
-                base_dir = "_mmap-records/struct-root-dumps";
+            {
+                const char *rr_dir = erts_mmap_record_option_dir();
+                if (rr_dir && rr_dir[0] != '\0') {
+                    erts_snprintf(dir_buf, sizeof(dir_buf), "%s/struct-root-dumps", rr_dir);
+                    base_dir = dir_buf;
+                } else {
+                    base_dir = "_mmap-records/struct-root-dumps";
+                }
             }
             erts_snprintf(dir_buf, sizeof(dir_buf), "%s", base_dir);
             erts_snprintf(manifest_path, sizeof(manifest_path),
