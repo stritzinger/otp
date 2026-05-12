@@ -52,7 +52,7 @@ start(Mod, BootArgs) ->
               end)
     end,
     %% Proceed to the specified boot module
-    run(Mod, boot, BootArgs).
+    run(Mod, boot, remove_replay_args(BootArgs)).
 
 restart() ->
     erts_internal:erase_persistent_terms(),
@@ -66,6 +66,13 @@ restart() ->
 replay_enabled(BootArgs) ->
     lists:member(<<"-replay">>, BootArgs)
         orelse os:getenv("ERTS_MMAP_REPLAY") =:= "1".
+
+remove_replay_args([<<"-replay">> | Args]) ->
+    remove_replay_args(Args);
+remove_replay_args([Arg | Args]) ->
+    [Arg | remove_replay_args(Args)];
+remove_replay_args([]) ->
+    [].
 
 run(M, F, A) ->
     case erlang:function_exported(M, F, 1) of
