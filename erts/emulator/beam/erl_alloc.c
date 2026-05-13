@@ -1067,11 +1067,13 @@ erts_alloc_init(int *argc, char **argv, ErtsAllocInitOpts *eaiop)
      */
 #if defined(ARCH_64) && defined(ERTS_HAVE_OS_PHYSICAL_MEMORY_RESERVATION)
     if (erts_mmap_record_option_replay_enabled()) {
+        const char *replay_root_dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
         if (!erts_mmap_record_literal_restore(&erts_literal_mmapper)) {
             erts_fprintf(stderr,
                          "failed to restore literal super-carrier "
                          "snapshot; replay will likely fail\n");
-        } else {
+        } else if (replay_root_dbg && replay_root_dbg[0] != '\0'
+                   && replay_root_dbg[0] != '0') {
             erts_fprintf(stderr,
                          "restored literal super-carrier snapshot\n");
         }

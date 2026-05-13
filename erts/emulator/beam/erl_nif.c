@@ -5571,10 +5571,12 @@ erts_replay_reinit_loaded_static_nifs(void)
              */
             rollback_opened_resource_types();
             cleanup_opened_rt();
-            erts_fprintf(stderr,
-                         "replay static NIF load callback returned veto=%d "
-                         "for %T; continuing without re-load\n",
-                         veto, p->mod_atom);
+            if (replay_dbg) {
+                erts_fprintf(stderr,
+                             "replay static NIF load callback returned veto=%d "
+                             "for %T; continuing without re-load\n",
+                             veto, p->mod_atom);
+            }
             continue;
         }
 

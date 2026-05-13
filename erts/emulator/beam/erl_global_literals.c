@@ -268,6 +268,10 @@ erts_global_literals_apply_replay_root(void)
     char line[1024];
     int loaded_empty_tuple = 0;
     int loaded_chunk_head = 0;
+    const char *replay_root_dbg = getenv("ERTS_REPLAY_ROOT_DEBUG");
+    int replay_dbg_enabled = replay_root_dbg
+        && replay_root_dbg[0] != '\0'
+        && replay_root_dbg[0] != '0';
 
     {
         const char *rr_dir = erts_mmap_record_option_dir();
@@ -343,11 +347,13 @@ erts_global_literals_apply_replay_root(void)
     fclose(mf);
 
     if (loaded_empty_tuple && loaded_chunk_head) {
-        erts_fprintf(stderr,
-                     "global_literals: restored empty_tuple=%p chunk_head=%p "
-                     "from replay snapshot\n",
-                     (void *) (UWord) ERTS_GLOBAL_LIT_EMPTY_TUPLE,
-                     (void *) global_literal_chunk);
+        if (replay_dbg_enabled) {
+            erts_fprintf(stderr,
+                         "global_literals: restored empty_tuple=%p chunk_head=%p "
+                         "from replay snapshot\n",
+                         (void *) (UWord) ERTS_GLOBAL_LIT_EMPTY_TUPLE,
+                         (void *) global_literal_chunk);
+        }
         return 1;
     }
     if (loaded_empty_tuple || loaded_chunk_head) {
