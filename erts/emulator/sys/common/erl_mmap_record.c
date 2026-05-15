@@ -37,7 +37,7 @@
 
 #if HAVE_ERTS_MMAP
 
-#define ERTS_RECORD_ARENA_SIZE (UWORD_CONSTANT(100) * 1024 * 1024)
+#define ERTS_RECORD_ARENA_SIZE (UWORD_CONSTANT(256) * 1024 * 1024)
 #define ERTS_RECORD_ARENA_FILE "mseg-arena.bin"
 
 typedef struct ErtsMMapRecordChunk_ ErtsMMapRecordChunk;
