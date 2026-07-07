@@ -567,7 +567,10 @@ arm::Mem BeamModuleAssembler::embed_constant(const ArgVal &value,
     }
 
     auto it = _constants.emplace(value,
-                                 Constant{.latestOffset = maxOffset,
+                                 Constant{.latestOffset = std::max<ssize_t>(
+                                                   currOffset,
+                                                   maxOffset -
+                                                           STUB_CHECK_INTERVAL),
                                           .anchor = a.newLabel(),
                                           .value = value});
     const Constant &constant = it->second;
