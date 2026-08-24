@@ -30,6 +30,8 @@ extern "C"
 
 #if defined(__APPLE__)
 #    include <libkern/OSCacheControl.h>
+#elif defined(__rtems__)
+#    include <rtems/rtems/cache.h>
 #elif defined(WIN32)
 #    include <windows.h>
 #endif
@@ -169,6 +171,13 @@ static auto create_allocator(const JitAllocator::CreateParams &params) {
         return std::make_pair(allocator, single_mapped);
     }
 
+#if defined(__rtems__)
+    erts_fprintf(stderr,
+                 "jit: allocator probe failed: %s (%d)\n",
+                 DebugUtils::errorAsString(err),
+                 static_cast<int>(err));
+#endif
+
     delete allocator;
     return std::make_pair((JitAllocator *)nullptr, false);
 }
@@ -179,6 +188,10 @@ static JitAllocator *pick_allocator() {
     bool single_mapped;
 
 #if defined(VALGRIND)
+    erts_jit_single_map = 1;
+#elif defined(__rtems__)
+    /* RTEMS 5 has no effective page protection and rejects AsmJit's
+     * read/execute-only half of a dual mapping. */
     erts_jit_single_map = 1;
 #elif defined(__APPLE__) && defined(__aarch64__)
     /* Allocating dual-mapped executable memory on this platform is horribly
@@ -209,6 +222,10 @@ static JitAllocator *pick_allocator() {
      * the shell on platforms that are very fd-constrained. */
     params.reset();
     params.blockSize = 32 << 20;
+#if defined(__rtems__)
+    /* RTEMS tends to be tighter on executable mappings than desktop OSes. */
+    params.blockSize = 4 << 20;
+#endif
 
     allocator = nullptr;
     single_mapped = false;
@@ -222,6 +239,35 @@ static JitAllocator *pick_allocator() {
         params.options &= ~JitAllocatorOptions::kUseDualMapping;
         std::tie(allocator, single_mapped) = create_allocator(params);
     }
+
+#if defined(__rtems__)
+    if (allocator == nullptr) {
+        static const uint32_t fallback_block_sizes[] = {
+                1 << 20, 512 << 10, 256 << 10, 128 << 10, 64 << 10};
+
+        if (!erts_jit_single_map) {
+            params.options = JitAllocatorOptions::kUseDualMapping;
+            for (uint32_t size : fallback_block_sizes) {
+                params.blockSize = size;
+                std::tie(allocator, single_mapped) = create_allocator(params);
+                if (allocator != nullptr) {
+                    break;
+                }
+            }
+        }
+
+        if (allocator == nullptr) {
+            params.options &= ~JitAllocatorOptions::kUseDualMapping;
+            for (uint32_t size : fallback_block_sizes) {
+                params.blockSize = size;
+                std::tie(allocator, single_mapped) = create_allocator(params);
+                if (allocator != nullptr) {
+                    break;
+                }
+            }
+        }
+    }
+#endif
 
     if (erts_jit_single_map && !single_mapped) {
         ERTS_INTERNAL_ERROR("jit: Failed to allocate executable+writable "
@@ -484,6 +530,8 @@ extern "C"
         __asm__ __volatile__("dsb ish\n" ::: "memory");
 #elif defined(__arm__) && defined(__linux__) // NOTE: __arm__ means arm 32-bit
         __builtin___clear_cache((char *)address, ((char*)address) + size);
+#elif defined(__arm__) && defined(__rtems__) // NOTE: __arm__ means arm 32-bit
+        rtems_cache_instruction_sync_after_code_change(address, size);
 #elif (defined(__x86_64__) || defined(_M_X64)) &&                              \
         defined(ERTS_THR_INSTRUCTION_BARRIER)
         /* We don't need to invalidate cache on this platform, but since we

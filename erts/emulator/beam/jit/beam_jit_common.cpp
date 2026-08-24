@@ -150,12 +150,27 @@ byte *BeamAssemblerCommon::getCode(char *labelName) {
 void BeamAssemblerCommon::handleError(Error err,
                                       const char *message,
                                       BaseEmitter *origin) {
+#if defined(__rtems__)
+    erts_fprintf(stderr,
+                 "\njit: AsmJit encode error: %s (%u), offset=%lu, "
+                 "origin=%p, message=%s\n",
+                 DebugUtils::errorAsString(err),
+                 static_cast<unsigned>(err),
+                 static_cast<unsigned long>(assembler.offset()),
+                 origin,
+                 message ? message : "(none)");
+    fflush(stdout);
+    fflush(stderr);
+#endif
+
     comment(message);
 
     if (logger.file() != NULL) {
         fflush(logger.file());
     }
 
+    fflush(stdout);
+    fflush(stderr);
     ASSERT(0 && "Failed to encode instruction");
 }
 
