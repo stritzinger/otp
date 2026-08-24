@@ -77,7 +77,7 @@
   #endif
 
   // Android NDK doesn't provide `shm_open()` and `shm_unlink()`.
-  #if !defined(__BIONIC__) && !defined(ASMJIT_NO_SHM_OPEN)
+  #if !defined(__BIONIC__) && !defined(ASMJIT_NO_SHM_OPEN) && !defined(__rtems__)
     #define ASMJIT_HAS_SHM_OPEN
   #endif
 
@@ -97,6 +97,12 @@
   #endif
 
   #if defined(__APPLE__) && ASMJIT_ARCH_X86 == 0
+    #define ASMJIT_NO_DUAL_MAPPING
+  #endif
+
+  // RTEMS 5 cannot create a read/execute-only mapping: its mmap()
+  // implementation requires PROT_WRITE and doesn't provide page protection.
+  #if defined(__rtems__)
     #define ASMJIT_NO_DUAL_MAPPING
   #endif
 
@@ -515,7 +521,7 @@ enum class AnonymousMemoryStrategy : uint32_t {
   kTmpDir = 2
 };
 
-#if !defined(SHM_ANON)
+#if !defined(SHM_ANON) || defined(__rtems__)
 static const char* get_tmp_dir() noexcept {
   const char* tmp_dir = getenv("TMPDIR");
   return tmp_dir ? tmp_dir : "/tmp";
@@ -584,6 +590,11 @@ public:
   inline int fd() const noexcept { return _fd; }
 
   Error open(bool prefer_tmp_over_dev_shm) noexcept {
+#if defined(__rtems__)
+    static constexpr mode_t anon_mem_mode = S_IRUSR | S_IWUSR | S_IXUSR;
+#else
+    static constexpr mode_t anon_mem_mode = S_IRUSR | S_IWUSR;
+#endif
 #if defined(__linux__) && defined(__NR_memfd_create)
     // Linux specific 'memfd_create' - if the syscall returns `ENOSYS` it means
     // it's not available and we will never call it again (would be pointless).
@@ -612,10 +623,10 @@ public:
     }
 #endif // __linux__ && __NR_memfd_create
 
-#if defined(ASMJIT_HAS_SHM_OPEN) && defined(SHM_ANON)
+#if defined(ASMJIT_HAS_SHM_OPEN) && defined(SHM_ANON) && !defined(__rtems__)
     // Originally FreeBSD extension, apparently works in other BSDs too.
     Support::maybe_unused(prefer_tmp_over_dev_shm);
-    _fd = ::shm_open(SHM_ANON, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+    _fd = ::shm_open(SHM_ANON, O_RDWR | O_CREAT | O_EXCL, anon_mem_mode);
 
     if (ASMJIT_LIKELY(_fd >= 0)) {
       return Error::kOk;
@@ -637,7 +648,7 @@ public:
       if (use_tmp) {
         _tmp_name.assign(get_tmp_dir());
         _tmp_name.append_format(shm_format_string, (unsigned long long)bits);
-        _fd = ASMJIT_FILE64_API(::open)(_tmp_name.data(), O_RDWR | O_CREAT | O_EXCL, 0);
+        _fd = ASMJIT_FILE64_API(::open)(_tmp_name.data(), O_RDWR | O_CREAT | O_EXCL, anon_mem_mode);
         if (ASMJIT_LIKELY(_fd >= 0)) {
           _file_type = kFileTypeTmp;
           return Error::kOk;
@@ -646,7 +657,7 @@ public:
 #if defined(ASMJIT_HAS_SHM_OPEN)
       else {
         _tmp_name.assign_format(shm_format_string, (unsigned long long)bits);
-        _fd = ::shm_open(_tmp_name.data(), O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+        _fd = ::shm_open(_tmp_name.data(), O_RDWR | O_CREAT | O_EXCL, anon_mem_mode);
         if (ASMJIT_LIKELY(_fd >= 0)) {
           _file_type = kFileTypeShm;
           return Error::kOk;
@@ -754,6 +765,10 @@ static bool has_hardened_runtime() noexcept {
 #if defined(__APPLE__) && TARGET_OS_OSX && ASMJIT_ARCH_ARM >= 64
   // OSX on AArch64 has always hardened runtime enabled.
   return true;
+#elif defined(__rtems__)
+  // RTEMS 5 does not enforce W^X. Its mmap() rejects AsmJit's probe for API
+  // compatibility reasons, not because writable/executable memory is blocked.
+  return false;
 #else
   static std::atomic<uint32_t> cached_hardened_flag;
 
@@ -913,19 +928,49 @@ static Error unmap_memory(void* p, size_t size) noexcept {
 }
 
 Error alloc(void** p, size_t size, MemoryFlags memory_flags) noexcept {
+#if defined(__rtems__)
+  // RTEMS 5 implements anonymous mmap() using posix_memalign() anyway. Bypass
+  // its POSIX mapping bookkeeping, which is incompatible with AsmJit's W^X
+  // probing, and use the platform's naturally executable heap directly.
+  Support::maybe_unused(memory_flags);
+  *p = nullptr;
+  if (size == 0) {
+    return make_error(Error::kInvalidArgument);
+  }
+
+  int err = posix_memalign(p, info().page_size, size);
+  if (err != 0) {
+    return make_error(err == ENOMEM ? Error::kOutOfMemory
+                                    : Error::kInvalidArgument);
+  }
+  return Error::kOk;
+#else
   return map_memory(p, size, memory_flags);
+#endif
 }
 
 Error release(void* p, size_t size) noexcept {
+#if defined(__rtems__)
+  Support::maybe_unused(size);
+  free(p);
+  return Error::kOk;
+#else
   return unmap_memory(p, size);
+#endif
 }
 
 Error protect(void* p, size_t size, MemoryFlags memory_flags) noexcept {
+#if defined(__rtems__)
+  // RTEMS 5 has no effective per-page protection; mprotect() is a no-op.
+  Support::maybe_unused(p, size, memory_flags);
+  return Error::kOk;
+#else
   int protection = mm_prot_from_memory_flags(memory_flags);
   if (mprotect(p, size, protection) == 0) {
     return Error::kOk;
   }
   return make_error(asmjit_error_from_errno(errno));
+#endif
 }
 
 // Virtual Memory [Posix] - Dual Mapping

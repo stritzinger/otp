@@ -3101,11 +3101,15 @@ AS_IF([test ${enable_jit} != no],
            esac
            ;;
         arm)
-           case "$OPSYS" in
-              linux)
+           case "$OPSYS:$host_os" in
+              linux:*)
                 # These platforms have dedicated system calls for clearing
                 # instruction cache, and don't require us to manually issue
                 # instruction barriers on all threads.
+                JIT_ARCH=arm
+                JIT_ARCH_BITS=32
+              ;;
+              noopsys:rtems*)
                 JIT_ARCH=arm
                 JIT_ARCH_BITS=32
               ;;
