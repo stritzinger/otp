@@ -471,6 +471,17 @@ void BeamModuleAssembler::emit_i_bs_get_binary2(const ArgRegister &Ctx,
     }
 }
 
+void BeamModuleAssembler::emit_i_bs_get_bin_and_tail(
+        const ArgRegister &Ctx,
+        const ArgLabel &Fail,
+        const ArgWord &Live,
+        const ArgRegister &Size,
+        const ArgWord &Unit,
+        const ArgRegister &Dst1,
+        const ArgRegister &Dst2) {
+    emit_nyi("emit_i_bs_get_bin_and_tail");
+}
+
 void BeamModuleAssembler::emit_i_bs_get_float2(const ArgRegister &Ctx,
                                                const ArgLabel &Fail,
                                                const ArgWord &Live,

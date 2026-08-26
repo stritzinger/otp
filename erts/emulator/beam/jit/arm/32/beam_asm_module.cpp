@@ -245,6 +245,14 @@ void BeamModuleAssembler::emit_i_breakpoint_trampoline() {
             BEAM_ASM_FUNC_PROLOGUE_SIZE);
 }
 
+void BeamGlobalAssembler::emit_i_line_breakpoint_trampoline_shared() {
+    emit_nyi("emit_i_line_breakpoint_trampoline_shared");
+}
+
+void BeamModuleAssembler::emit_i_line_breakpoint_trampoline() {
+    emit_nyi("emit_i_line_breakpoint_trampoline");
+}
+
 static void i_emit_nyi(char *msg) {
     erts_exit(ERTS_ERROR_EXIT, "NYI: %s\n", msg);
 }

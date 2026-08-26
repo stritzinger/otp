@@ -2706,3 +2706,9 @@ void BeamModuleAssembler::emit_coverage(void *coverage, Uint index, Uint size) {
     // TODO
     emit_nyi("emit_coverage");
 }
+
+void BeamModuleAssembler::emit_i_debug_line(const ArgWord &Loc,
+                                            const ArgWord &Index,
+                                            const ArgWord &Live) {
+    emit_nyi("emit_i_debug_line");
+}
