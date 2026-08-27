@@ -30,7 +30,7 @@
  *
  * The call-site PC is passed via TMP_MEM2q (ARM32 has no ARG5 register). */
 void BeamGlobalAssembler::emit_unloaded_fun() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -40,8 +40,8 @@ void BeamGlobalAssembler::emit_unloaded_fun() {
     a.lsr(ARG3, ARG3, imm(FUN_HEADER_ARITY_OFFS));
     /* ARG4 has already been set. */
     a.sub(a32::sp, a32::sp, imm(8));
-    a.str(active_code_ix, arm::Mem(a32::sp, 0)); /* arg5 */
-    runtime_call<5>(beam_jit_handle_unloaded_fun);
+    a.str(active_code_ix, a32::Mem(a32::sp, 0)); /* arg5 */
+    runtime_call<const Export *(*)(Process *, Eterm *, int, Eterm, ErtsCodeIndex), beam_jit_handle_unloaded_fun>();
     a.add(a32::sp, a32::sp, imm(8));
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions | 
@@ -70,7 +70,7 @@ void BeamGlobalAssembler::emit_unloaded_fun() {
  *
  * The call-site PC is passed via TMP_MEM2q (ARM32 has no ARG5 register). */
 void BeamGlobalAssembler::emit_handle_call_fun_error() {
-    Label bad_arity = a.newLabel(), bad_fun = a.newLabel();
+    Label bad_arity = a.new_label(), bad_fun = a.new_label();
 
     emit_is_boxed(bad_fun, ARG4);
 
@@ -83,8 +83,8 @@ void BeamGlobalAssembler::emit_handle_call_fun_error() {
     a.bind(bad_fun);
     {
         mov_imm(TMP, EXC_BADFUN);
-        a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
-        a.str(ARG4, arm::Mem(c_p, offsetof(Process, fvalue)));
+        a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));
+        a.str(ARG4, a32::Mem(c_p, offsetof(Process, fvalue)));
 
         a.ldr(ARG2, TMP_MEM2q);
         mov_imm(ARG4, nullptr);
@@ -101,7 +101,7 @@ void BeamGlobalAssembler::emit_handle_call_fun_error() {
         a.mov(ARG1, c_p);
         load_x_reg_array(ARG2);
         a.lsr(ARG3, ARG3, imm(FUN_HEADER_ARITY_OFFS));
-        runtime_call<3>(beam_jit_build_argument_list);
+        runtime_call<Eterm (*)(Process *, const Eterm *, int), beam_jit_build_argument_list>();
 
         emit_leave_runtime<Update::eHeapAlloc>();
 
@@ -113,7 +113,7 @@ void BeamGlobalAssembler::emit_handle_call_fun_error() {
         /* Create the {Fun, Args} tuple. */
         {
             const int32_t bytes_needed = (3 + S_RESERVED) * sizeof(Eterm);
-            Label after_gc = a.newLabel();
+            Label after_gc = a.new_label();
 
             add(ARG3, HTOP, bytes_needed);
             a.cmp(ARG3, E);
@@ -129,15 +129,15 @@ void BeamGlobalAssembler::emit_handle_call_fun_error() {
             a.add(VAR, HTOP, imm(TAG_PRIMARY_BOXED));
 
             mov_imm(TMP, make_arityval(2));
-            a.str(TMP, arm::Mem(HTOP).post(sizeof(Eterm)));
-            a.str(ARG1, arm::Mem(HTOP).post(sizeof(Eterm)));
-            a.str(ARG2, arm::Mem(HTOP).post(sizeof(Eterm)));
+            a.str(TMP, a32::Mem(HTOP).post(sizeof(Eterm)));
+            a.str(ARG1, a32::Mem(HTOP).post(sizeof(Eterm)));
+            a.str(ARG2, a32::Mem(HTOP).post(sizeof(Eterm)));
             a.mov(ARG1, VAR);
         }
 
         mov_imm(TMP, EXC_BADARITY);
-        a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
-        a.str(ARG1, arm::Mem(c_p, offsetof(Process, fvalue)));
+        a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));
+        a.str(ARG1, a32::Mem(c_p, offsetof(Process, fvalue)));
 
         a.ldr(ARG2, TMP_MEM2q);
         mov_imm(ARG4, nullptr);
@@ -155,7 +155,7 @@ void BeamGlobalAssembler::emit_dispatch_save_calls_fun() {
      * Use VAR as the temporary code index register so the final branch load
      * can keep TMP as destination without aliasing the address index. */
     mov_imm(VAR, &the_active_code_index);
-    a.ldr(VAR, arm::Mem(VAR));
+    a.ldr(VAR, a32::Mem(VAR));
 
     branch(emit_setup_dispatchable_call(ARG1, VAR));
 }
@@ -184,7 +184,7 @@ void BeamModuleAssembler::emit_i_lambda_trampoline(const ArgLambda &Lambda,
         /* Don't bother untagging when there's only a single element, it's
          * guaranteed to be within range of LDR. */
         emit_ptr_val(ARG4, ARG4);
-        a.ldr(first.reg, arm::Mem(ARG4, env_offset));
+        a.ldr(first.reg, a32::Mem(ARG4, env_offset));
         flush_var(first);
     } else if (NumFree.get() >= 2) {
         ssize_t i;
@@ -196,15 +196,15 @@ void BeamModuleAssembler::emit_i_lambda_trampoline(const ArgLambda &Lambda,
             auto first = init_destination(ArgXRegister(i), VAR);
             auto second = init_destination(ArgXRegister(i + 1), TMP);
 
-            a.ldr(first.reg, arm::Mem(ARG4).post(sizeof(Eterm)));
-            a.ldr(second.reg, arm::Mem(ARG4).post(sizeof(Eterm)));
+            a.ldr(first.reg, a32::Mem(ARG4).post(sizeof(Eterm)));
+            a.ldr(second.reg, a32::Mem(ARG4).post(sizeof(Eterm)));
             flush_var(first);
             flush_var(second);
         }
 
         if (i < total_arity) {
             auto last = init_destination(ArgXRegister(i), TMP);
-            a.ldr(last.reg, arm::Mem(ARG4));
+            a.ldr(last.reg, a32::Mem(ARG4));
             flush_var(last);
         }
     }
@@ -217,7 +217,7 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
                                            const ArgRegister &Dst,
                                            const ArgWord &Arity,
                                            const ArgWord &NumFree,
-                                           const Span<ArgVal> &env) {
+                                           const Span<const ArgVal> &env) {
     ASSERT((NumFree.get() + 1) == env.size() &&
            (NumFree.get() + Arity.get()) < MAX_ARG);
 
@@ -225,8 +225,8 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
 
     comment("Create fun thing");
     mov_imm(ARG1, MAKE_FUN_HEADER(Arity.get(), NumFree.get(), 0));
-    a.str(ARG1, arm::Mem(HTOP, offsetof(ErlFunThing, thing_word)));
-    a.str(ARG2, arm::Mem(HTOP, offsetof(ErlFunThing, entry.fun)));
+    a.str(ARG1, a32::Mem(HTOP, offsetof(ErlFunThing, thing_word)));
+    a.str(ARG2, a32::Mem(HTOP, offsetof(ErlFunThing, entry.fun)));
 
     comment("Move fun environment");
     add(ARG2, HTOP, offsetof(ErlFunThing, env));
@@ -236,7 +236,7 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
         }
 
         mov_arg(ARG1, env[i]);
-        a.str(ARG1, arm::Mem(ARG2).post(sizeof(Eterm)));
+        a.str(ARG1, a32::Mem(ARG2).post(sizeof(Eterm)));
     }
 
     comment("Create boxed ptr");
@@ -247,7 +247,7 @@ void BeamModuleAssembler::emit_i_make_fun3(const ArgLambda &Lambda,
 }
 
 void BeamGlobalAssembler::emit_apply_fun_shared() {
-    Label finished = a.newLabel();
+    Label finished = a.new_label();
 
     /* Put the arity and fun into the right registers for `call_fun`, and stash
      * the argument list in ARG2 for the error path. We'll bump the arity as
@@ -256,8 +256,8 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
     a.ldr(ARG4, getXRef(0));
     a.ldr(ARG2, getXRef(1));
     {
-        Label unpack_next = a.newLabel(), malformed_list = a.newLabel(),
-              raise_error = a.newLabel();
+        Label unpack_next = a.new_label(), malformed_list = a.new_label(),
+              raise_error = a.new_label();
 
         a.mov(ARG1, ARG2);
         lea(VAR, getXRef(0));
@@ -273,7 +273,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
             emit_ptr_val(ARG1, ARG1);
             a.ldr(TMP, getCARRef(ARG1));
             a.ldr(ARG1, getCDRRef(ARG1));
-            a.str(TMP, arm::Mem(VAR).post(sizeof(Eterm)));
+            a.str(TMP, a32::Mem(VAR).post(sizeof(Eterm)));
 
             /* We bail at MAX_REG-1 rather than MAX_REG as the highest register
              * is reserved for the loader. */
@@ -296,7 +296,7 @@ void BeamGlobalAssembler::emit_apply_fun_shared() {
             a.str(ARG4, getXRef(0));
             a.str(ARG2, getXRef(1));
 
-            a.str(ARG1, arm::Mem(c_p, offsetof(Process, freason)));
+            a.str(ARG1, a32::Mem(c_p, offsetof(Process, freason)));
             mov_imm(ARG4, &apply_mfa);
             a.b(labels[raise_exception]);
         }
@@ -335,7 +335,7 @@ void BeamModuleAssembler::emit_i_apply_fun_only() {
 a32::Gp BeamModuleAssembler::emit_call_fun(bool skip_box_test,
                                            bool skip_header_test) {
     const bool can_fail = !(skip_box_test && skip_header_test);
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     /* Speculatively untag the ErlFunThing. */
     emit_untag_ptr(VAR, ARG4);
@@ -363,12 +363,12 @@ a32::Gp BeamModuleAssembler::emit_call_fun(bool skip_box_test,
     if (skip_header_test) {
         comment("skipped fun/arity test since source is always a fun of the "
                 "right arity when boxed");
-        a.ldr(ARG1, arm::Mem(VAR, offsetof(ErlFunThing, entry)));
+        a.ldr(ARG1, a32::Mem(VAR, offsetof(ErlFunThing, entry)));
     } else {
         /* Load header and entry, then compare low 16 bits of header with ARG3
          * (FUN_SUBTAG + arity). */
-        a.ldr(TMP, arm::Mem(VAR, offsetof(ErlFunThing, thing_word)));
-        a.ldr(ARG1, arm::Mem(VAR, offsetof(ErlFunThing, entry)));
+        a.ldr(TMP, a32::Mem(VAR, offsetof(ErlFunThing, thing_word)));
+        a.ldr(ARG1, a32::Mem(VAR, offsetof(ErlFunThing, entry)));
         a.lsl(TMP, TMP, imm(16));
         a.lsr(TMP, TMP, imm(16));
         a.cmp(ARG3, TMP);

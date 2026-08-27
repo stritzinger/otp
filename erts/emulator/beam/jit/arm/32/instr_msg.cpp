@@ -34,7 +34,7 @@ void BeamModuleAssembler::emit_recv_marker_reserve(const ArgRegister &Dst) {
     emit_enter_runtime<Update::eHeapAlloc>();
 
     a.mov(ARG1, c_p);
-    runtime_call<1>(erts_msgq_recv_marker_insert);
+    runtime_call<Eterm (*)(Process *), erts_msgq_recv_marker_insert>();
 
     emit_leave_runtime<Update::eHeapAlloc>();
 
@@ -49,7 +49,7 @@ void BeamModuleAssembler::emit_recv_marker_bind(const ArgRegister &Marker,
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<3>(erts_msgq_recv_marker_bind);
+    runtime_call<void (*)(Process *, Eterm, Eterm), erts_msgq_recv_marker_bind>();
 
     emit_leave_runtime();
 }
@@ -60,7 +60,7 @@ void BeamModuleAssembler::emit_recv_marker_clear(const ArgRegister &Reference) {
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<2>(erts_msgq_recv_marker_clear);
+    runtime_call<void (*)(Process *, Eterm), erts_msgq_recv_marker_clear>();
 
     emit_leave_runtime();
 }
@@ -71,7 +71,7 @@ void BeamModuleAssembler::emit_recv_marker_use(const ArgRegister &Reference) {
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<2>(erts_msgq_recv_marker_set_save);
+    runtime_call<void (*)(Process *, Eterm), erts_msgq_recv_marker_set_save>();
 
     emit_leave_runtime();
 }
@@ -99,20 +99,20 @@ int erts_lc_proc_sig_receive_helper(Process *c_p,
 #endif
 
 void BeamGlobalAssembler::emit_i_loop_rec_shared() {
-    Label restart = a.newLabel(), peek_message = a.newLabel(),
-          schedule_out = a.newLabel(), check_is_distributed = a.newLabel(),
-          done = a.newLabel();
+    Label restart = a.new_label(), peek_message = a.new_label(),
+          schedule_out = a.new_label(), check_is_distributed = a.new_label(),
+          done = a.new_label();
 
-    arm::Mem await_addr = TMP_MEM1q, message_ptr = TMP_MEM2q,
+    a32::Mem await_addr = TMP_MEM1q, message_ptr = TMP_MEM2q,
              get_out = TMP_MEM3q, saved_lr = TMP_MEM4q;
-    arm::Mem flags = arm::Mem(c_p, offsetof(Process, flags));
+    a32::Mem flags = a32::Mem(c_p, offsetof(Process, flags));
 
     a.str(a32::lr, saved_lr);
 
     a.ldr(TMP, flags);
     a.orr(TMP, TMP, imm(F_DELAY_GC));
     a.str(TMP, flags);
-    a.str(ARG1, arm::Mem(c_p, offsetof(Process, i)));
+    a.str(ARG1, a32::Mem(c_p, offsetof(Process, i)));
     a.str(ARG2, await_addr);
 
     a.bind(restart);
@@ -126,8 +126,8 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
     comment("Peek next message");
     a.bind(peek_message);
     {
-        a.ldr(TMP, arm::Mem(c_p, offsetof(Process, sig_qs.save)));
-        a.ldr(ARG1, arm::Mem(TMP));
+        a.ldr(TMP, a32::Mem(c_p, offsetof(Process, sig_qs.save)));
+        a.ldr(ARG1, a32::Mem(TMP));
         emit_branch_if_ne(ARG1, 0, check_is_distributed);
         comment("Inner queue empty, fetch more from outer/middle queues");
 
@@ -142,11 +142,11 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
         lea(ARG4, message_ptr);
         lea(TMP, get_out);
         a.sub(a32::sp, a32::sp, imm(8));
-        a.str(TMP, arm::Mem(a32::sp, 0));
+        a.str(TMP, a32::Mem(a32::sp, 0));
 #ifdef ERTS_ENABLE_LOCK_CHECK
-        runtime_call<5>(erts_lc_proc_sig_receive_helper);
+        runtime_call<int (*)(Process *, int, int, ErtsMessage **, int *), erts_lc_proc_sig_receive_helper>();
 #else
-        runtime_call<5>(erts_proc_sig_receive_helper);
+        runtime_call<int (*)(Process *, int, int, ErtsMessage **, int *), erts_proc_sig_receive_helper>();
 #endif
         a.add(a32::sp, a32::sp, imm(8));
 
@@ -188,8 +188,8 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
         a.bic(TMP, TMP, imm(F_DELAY_GC));
         a.str(TMP, flags);
         mov_imm(TMP, 0);
-        a.strb(TMP, arm::Mem(c_p, offsetof(Process, arity)));
-        a.str(TMP, arm::Mem(c_p, offsetof(Process, current)));
+        a.strb(TMP, a32::Mem(c_p, offsetof(Process, arity)));
+        a.str(TMP, a32::Mem(c_p, offsetof(Process, current)));
 
         a.b(labels[do_schedule]);
     }
@@ -200,7 +200,7 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
     comment("Check if message is distributed");
     a.bind(check_is_distributed);
     {
-        a.ldr(TMP, arm::Mem(ARG1, offsetof(ErtsSignal, common.tag)));
+        a.ldr(TMP, a32::Mem(ARG1, offsetof(ErtsSignal, common.tag)));
         emit_branch_if_value(TMP, done);
 
         sub(FCALLS, FCALLS, 10);
@@ -209,7 +209,7 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
 
         a.mov(ARG2, ARG1);
         a.mov(ARG1, c_p);
-        runtime_call<2>(beam_jit_decode_dist);
+        runtime_call<ErtsMessage *(*)(Process *, ErtsMessage *), beam_jit_decode_dist>();
 
         emit_leave_runtime<>();
 
@@ -220,7 +220,7 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
 
     a.bind(done);
     {
-        a.ldr(TMP, arm::Mem(ARG1, offsetof(ErtsMessage, m[0])));
+        a.ldr(TMP, a32::Mem(ARG1, offsetof(ErtsMessage, m[0])));
         a.str(TMP, getXRef(0)); // return message pointer in X0
         a.ldr(a32::lr, saved_lr);
         a.bx(a32::lr);
@@ -228,7 +228,7 @@ void BeamGlobalAssembler::emit_i_loop_rec_shared() {
 }
 
 void BeamModuleAssembler::emit_i_loop_rec(const ArgLabel &Wait) {
-    Label entry = a.newLabel();
+    Label entry = a.new_label();
 
     a.bind(entry);
     a.adr(ARG1, entry);
@@ -249,8 +249,8 @@ void BeamModuleAssembler::emit_remove_message() {
     a.mov(TMP, active_code_ix);
 
     a.sub(a32::sp, a32::sp, imm(8));
-    a.str(TMP, arm::Mem(a32::sp, 0));
-    runtime_call<5>(beam_jit_remove_message);
+    a.str(TMP, a32::Mem(a32::sp, 0));
+    runtime_call<Sint32 (*)(Process *, Sint32, Eterm *, Eterm *, Uint32), beam_jit_remove_message>();
     a.add(a32::sp, a32::sp, imm(8));
 
     a.mov(FCALLS, ARG1);
@@ -262,7 +262,7 @@ void BeamModuleAssembler::emit_loop_rec_end(const ArgLabel &Dest) {
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<1>(erts_msgq_set_save_next);
+    runtime_call<void (*)(Process *), erts_msgq_set_save_next>();
 
     emit_leave_runtime();
 
@@ -275,7 +275,7 @@ void BeamModuleAssembler::emit_wait_unlocked(const ArgLabel &Dest) {
 
     a.mov(ARG1, c_p);
     a.ldr(ARG2, embed_constant(Dest, disp4KB));
-    runtime_call<2>(beam_jit_wait_unlocked);
+    runtime_call<void (*)(Process *, ErtsCodePtr), beam_jit_wait_unlocked>();
 
     emit_leave_runtime();
 
@@ -288,7 +288,7 @@ void BeamModuleAssembler::emit_wait_locked(const ArgLabel &Dest) {
 
     a.mov(ARG1, c_p);
     a.ldr(ARG2, embed_constant(Dest, disp4KB));
-    runtime_call<2>(beam_jit_wait_locked);
+    runtime_call<void (*)(Process *, ErtsCodePtr), beam_jit_wait_locked>();
 
     emit_leave_runtime();
 
@@ -304,7 +304,7 @@ void BeamModuleAssembler::emit_wait_timeout_unlocked(const ArgSource &Src,
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<1>(beam_jit_take_receive_lock);
+    runtime_call<void (*)(Process *), beam_jit_take_receive_lock>();
 
     emit_leave_runtime();
 
@@ -313,7 +313,7 @@ void BeamModuleAssembler::emit_wait_timeout_unlocked(const ArgSource &Src,
 
 void BeamModuleAssembler::emit_wait_timeout_locked(const ArgSource &Src,
                                                    const ArgLabel &Dest) {
-    Label wait = a.newLabel(), next = a.newLabel();
+    Label wait = a.new_label(), next = a.new_label();
 
     mov_arg(ARG2, Src);
 
@@ -321,7 +321,7 @@ void BeamModuleAssembler::emit_wait_timeout_locked(const ArgSource &Src,
 
     a.mov(ARG1, c_p);
     a.adr(ARG3, next);
-    runtime_call<3>(beam_jit_wait_timeout);
+    runtime_call<enum beam_jit_tmo_ret (*)(Process *, Eterm, ErtsCodePtr), beam_jit_wait_timeout>();
 
     emit_leave_runtime();
 
@@ -342,7 +342,7 @@ void BeamModuleAssembler::emit_timeout_locked() {
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<1>(beam_jit_timeout_locked);
+    runtime_call<void (*)(Process *), beam_jit_timeout_locked>();
 
     emit_leave_runtime();
 }
@@ -351,7 +351,7 @@ void BeamModuleAssembler::emit_timeout() {
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<1>(beam_jit_timeout);
+    runtime_call<void (*)(Process *), beam_jit_timeout>();
 
     emit_leave_runtime();
 }

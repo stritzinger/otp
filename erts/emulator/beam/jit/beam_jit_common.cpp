@@ -268,7 +268,7 @@ void BeamModuleAssembler::codegen(JitAllocator *allocator,
 void BeamModuleAssembler::codegen(char *buff, size_t len) {
     code.flatten();
     code.resolve_cross_section_fixups();
-    ERTS_ASSERT(code.codeSize() <= len);
+    ERTS_ASSERT(code.code_size() <= len);
 #ifdef ARCH_32
     code.relocate_to_base((uint32_t)buff);
 #else

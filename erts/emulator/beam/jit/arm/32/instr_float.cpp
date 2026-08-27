@@ -29,7 +29,7 @@ extern "C"
  *
  * Clobbers d30 and d31. */
 void BeamGlobalAssembler::emit_check_float_error() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     /* ARM64 uses FCMP against DBL_MAX. On ARM32 we keep the same semantics
      * (error on non-finite values) by checking the exponent field after fabs:
@@ -46,7 +46,7 @@ void BeamGlobalAssembler::emit_check_float_error() {
     {
         mov_imm(ARG4, 0);
         mov_imm(TMP, EXC_BADARITH);
-        a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
+        a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));
         a.b(labels[raise_exception]);
     }
 }
@@ -91,7 +91,7 @@ void BeamModuleAssembler::emit_fload(const ArgSource &Src,
     a32::Gp float_ptr = emit_ptr_val(TMP, src.reg);
 
     lea(TMP, emit_boxed_val(float_ptr, sizeof(Eterm)));
-    a.vldr_64(dst.reg, arm::Mem(TMP));
+    a.vldr_64(dst.reg, a32::Mem(TMP));
     flush_var(dst);
 }
 
@@ -103,9 +103,9 @@ void BeamModuleAssembler::emit_fstore(const ArgFRegister &Src,
     a.add(dst.reg, HTOP, imm(TAG_PRIMARY_BOXED));
 
     mov_imm(TMP, HEADER_FLONUM);
-    a.str(TMP, arm::Mem(HTOP).post(sizeof(Eterm)));
+    a.str(TMP, a32::Mem(HTOP).post(sizeof(Eterm)));
 
-    a.vstr_64(src.reg, arm::Mem(HTOP));
+    a.vstr_64(src.reg, a32::Mem(HTOP));
     ERTS_CT_ASSERT(sizeof(Eterm) == 4);
     a.add(HTOP, HTOP, imm(2 * sizeof(Eterm)));
 
@@ -114,14 +114,14 @@ void BeamModuleAssembler::emit_fstore(const ArgFRegister &Src,
 
 /* ARG1 = source term */
 void BeamGlobalAssembler::emit_fconv_shared() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     /* Is the source a bignum? */
     {
         emit_is_boxed(error, ARG1);
 
         emit_untag_ptr(TMP, ARG1);
-        a.ldr(TMP, arm::Mem(TMP));
+        a.ldr(TMP, a32::Mem(TMP));
 
         /* The mask (0b111011) cannot be encoded directly on ARM32. */
         mov_imm(VAR, _TAG_HEADER_MASK - _BIG_SIGN_BIT);
@@ -135,7 +135,7 @@ void BeamGlobalAssembler::emit_fconv_shared() {
 
     /* ARG1 already contains the source term. */
     lea(ARG2, TMP_MEM1q);
-    runtime_call<2>(big_to_double);
+    runtime_call<int (*)(Eterm, double *), big_to_double>();
 
     emit_leave_runtime();
     emit_leave_runtime_frame();
@@ -144,14 +144,14 @@ void BeamGlobalAssembler::emit_fconv_shared() {
     a.b_mi(error);
 
     lea(TMP, TMP_MEM1q);
-    a.vldr_64(a32::d0, arm::Mem(TMP));
+    a.vldr_64(a32::d0, a32::Mem(TMP));
     a.bx(a32::lr);
 
     a.bind(error);
     {
         mov_imm(ARG4, 0);
         mov_imm(TMP, EXC_BADARITH);
-        a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
+        a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));
         a.b(labels[raise_exception]);
     }
 }
@@ -170,9 +170,9 @@ void BeamModuleAssembler::emit_fconv(const ArgSource &Src,
         return;
     }
 
-    Label next = a.newLabel(),
-          not_small = a.newLabel(),
-          fallback = a.newLabel();
+    Label next = a.new_label(),
+          not_small = a.new_label(),
+          fallback = a.new_label();
 
     a.and_(TMP, src.reg, imm(_TAG_IMMED1_MASK));
     a.cmp(TMP, imm(_TAG_IMMED1_SMALL));
@@ -200,10 +200,10 @@ void BeamModuleAssembler::emit_fconv(const ArgSource &Src,
 
             /* Speculatively load the float value, this is safe since all boxed
              * terms are at least two words long. */
-            lea(VAR, arm::Mem(TMP, sizeof(Eterm)));
-            a.vldr_64(dst.reg, arm::Mem(VAR));
+            lea(VAR, a32::Mem(TMP, sizeof(Eterm)));
+            a.vldr_64(dst.reg, a32::Mem(VAR));
 
-            a.ldr(TMP, arm::Mem(TMP));
+            a.ldr(TMP, a32::Mem(TMP));
             mov_imm(VAR, HEADER_FLONUM);
             a.cmp(TMP, VAR);
             a.b_eq(next);

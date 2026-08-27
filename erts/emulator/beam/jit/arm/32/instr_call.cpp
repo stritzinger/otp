@@ -28,9 +28,9 @@ extern "C"
 void BeamGlobalAssembler::emit_dispatch_return() {
     a.mov(ARG3, a32::lr);
     mov_imm(TMP, 0);
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, current)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, current)));
     mov_imm(TMP, 1);
-    a.strb(TMP, arm::Mem(c_p, offsetof(Process, arity)));
+    a.strb(TMP, a32::Mem(c_p, offsetof(Process, arity)));
     a.b(labels[context_switch_simplified]);
 }
 
@@ -42,7 +42,7 @@ void BeamModuleAssembler::emit_dispatch_return() {
 
     if (erts_alcu_enable_code_atags) {
         /* See emit_i_test_yield. */
-        a.str(a32::lr, arm::Mem(c_p, offsetof(Process, i)));
+        a.str(a32::lr, a32::Mem(c_p, offsetof(Process, i)));
     }
 
     /* The reduction test is kept in module code because moving it to a shared
@@ -61,7 +61,7 @@ void BeamModuleAssembler::emit_return() {
 }
 
 void BeamModuleAssembler::emit_move_deallocate_return() {
-    a.ldmia(arm::Mem(E).pre(), a32::GpList({TMP, a32::lr}));
+    a.ldmia(a32::Mem(E).pre(), a32::GpList({TMP, a32::lr}));
     a.str(TMP, getXRef(0));
     emit_dispatch_return();
 }
@@ -105,14 +105,14 @@ void BeamGlobalAssembler::emit_dispatch_save_calls_export() {
 void BeamModuleAssembler::emit_i_call_ext(const ArgExport &Exp) {
     mov_arg(ARG1, Exp);
 
-    arm::Mem target = emit_setup_dispatchable_call(ARG1);
+    a32::Mem target = emit_setup_dispatchable_call(ARG1);
     erlang_call(target);
 }
 
 void BeamModuleAssembler::emit_i_call_ext_only(const ArgExport &Exp) {
     mov_arg(ARG1, Exp);
 
-    arm::Mem target = emit_setup_dispatchable_call(ARG1);
+    a32::Mem target = emit_setup_dispatchable_call(ARG1);
     emit_leave_erlang_frame();
     branch(target);
     mark_unreachable();
@@ -138,8 +138,8 @@ void BeamModuleAssembler::emit_move_call_ext_last(const ArgYRegister &Src,
 
 static ErtsCodeMFA apply3_mfa = {am_erlang, am_apply, 3};
 
-arm::Mem BeamModuleAssembler::emit_variable_apply(bool includeI) {
-    Label dispatch = a.newLabel(), entry = a.newLabel();
+a32::Mem BeamModuleAssembler::emit_variable_apply(bool includeI) {
+    Label dispatch = a.new_label(), entry = a.new_label();
 
     a.bind(entry);
 
@@ -159,7 +159,7 @@ arm::Mem BeamModuleAssembler::emit_variable_apply(bool includeI) {
     comment("apply()");
     // Using the basic runtime_call instead of the BeamModuleAssembler version
     // allows to skip veneer management
-    BeamAssembler::runtime_call<4>(apply);
+    runtime_call<const Export *(*)(Process *, Eterm *, ErtsCodePtr, Uint), apply>();
 
     emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
 
@@ -172,7 +172,7 @@ arm::Mem BeamModuleAssembler::emit_variable_apply(bool includeI) {
 }
 
 void BeamModuleAssembler::emit_i_apply() {
-    arm::Mem target = emit_variable_apply(false);
+    a32::Mem target = emit_variable_apply(false);
     erlang_call(target);
 }
 
@@ -182,16 +182,16 @@ void BeamModuleAssembler::emit_i_apply_last(const ArgWord &Deallocate) {
 }
 
 void BeamModuleAssembler::emit_i_apply_only() {
-    arm::Mem target = emit_variable_apply(true);
+    a32::Mem target = emit_variable_apply(true);
 
     emit_leave_erlang_frame();
     branch(target);
     mark_unreachable();
 }
 
-arm::Mem BeamModuleAssembler::emit_fixed_apply(const ArgWord &Arity,
+a32::Mem BeamModuleAssembler::emit_fixed_apply(const ArgWord &Arity,
                                                bool includeI) {
-    Label dispatch = a.newLabel(), entry = a.newLabel();
+    Label dispatch = a.new_label(), entry = a.new_label();
 
     a.bind(entry);
 
@@ -210,8 +210,8 @@ arm::Mem BeamModuleAssembler::emit_fixed_apply(const ArgWord &Arity,
 
     mov_imm(TMP, 0);
     a.sub(a32::sp, a32::sp, 8);
-    a.str(TMP, arm::Mem(a32::sp));
-    runtime_call<5>(fixed_apply);
+    a.str(TMP, a32::Mem(a32::sp));
+    runtime_call<const Export *(*)(Process *, Eterm *, Uint, ErtsCodePtr, Uint), fixed_apply>();
     a.add(a32::sp, a32::sp, 8);
 
     /* We will need to reload all X registers in case there has been
@@ -227,7 +227,7 @@ arm::Mem BeamModuleAssembler::emit_fixed_apply(const ArgWord &Arity,
 }
 
 void BeamModuleAssembler::emit_apply(const ArgWord &Arity) {
-    arm::Mem target = emit_fixed_apply(Arity, false);
+    a32::Mem target = emit_fixed_apply(Arity, false);
     erlang_call(target);
 }
 
@@ -235,7 +235,7 @@ void BeamModuleAssembler::emit_apply_last(const ArgWord &Arity,
                                           const ArgWord &Deallocate) {
     emit_deallocate(Deallocate);
 
-    arm::Mem target = emit_fixed_apply(Arity, true);
+    a32::Mem target = emit_fixed_apply(Arity, true);
 
     emit_leave_erlang_frame();
     branch(target);

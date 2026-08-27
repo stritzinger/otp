@@ -35,14 +35,14 @@ void BeamGlobalAssembler::emit_generic_bp_global() {
      * breakpoints. */
     emit_enter_erlang_frame();
 
-    lea(ARG2, arm::Mem(ARG1, offsetof(Export, info)));
+    lea(ARG2, a32::Mem(ARG1, offsetof(Export, info)));
 
     emit_enter_runtime<Update::eHeapAlloc | Update::eReductions>();
 
     a.mov(ARG1, c_p);
     /* ARG2 is already set above. */
     load_x_reg_array(ARG3);
-    runtime_call<3>(erts_generic_breakpoint);
+    runtime_call<BeamInstr (*)(Process *, ErtsCodeInfo *, Eterm *), erts_generic_breakpoint>();
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
 
@@ -60,7 +60,7 @@ void BeamGlobalAssembler::emit_generic_bp_global() {
  * See beam_asm.h for more details */
 void BeamGlobalAssembler::emit_generic_bp_local() {
     /* For ARM32 runtime frames we push {fp, lr}; caller LR is at SP+4. */
-    a.ldr(ARG2, arm::Mem(a32::sp, 4));
+    a.ldr(ARG2, a32::Mem(a32::sp, 4));
 
     /* Stash return address for later use in `debug_bp`. */
     a.str(ARG2, TMP_MEM1q);
@@ -76,7 +76,7 @@ void BeamGlobalAssembler::emit_generic_bp_local() {
     a.mov(ARG1, c_p);
     /* ARG2 is already set above. */
     load_x_reg_array(ARG3);
-    runtime_call<3>(erts_generic_breakpoint);
+    runtime_call<BeamInstr (*)(Process *, ErtsCodeInfo *, Eterm *), erts_generic_breakpoint>();
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
 
@@ -93,7 +93,7 @@ void BeamGlobalAssembler::emit_generic_bp_local() {
  *
  * The only place that we can come to here is from generic_bp_local */
 void BeamGlobalAssembler::emit_debug_bp() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     /* Read and adjust the return address we saved in generic_bp_local. */
     a.ldr(ARG2, TMP_MEM1q);
@@ -104,7 +104,7 @@ void BeamGlobalAssembler::emit_debug_bp() {
     a.mov(ARG1, c_p);
     load_x_reg_array(ARG3);
     mov_imm(ARG4, am_breakpoint);
-    runtime_call<4>(call_error_handler);
+    runtime_call<const Export *(*)(Process *, const ErtsCodeMFA *, Eterm *, Eterm), call_error_handler>();
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
 
@@ -144,12 +144,12 @@ void BeamModuleAssembler::emit_return_trace() {
     /* arg5 (session_id) goes on stack for AAPCS */
     a.sub(a32::sp, a32::sp, imm(8));
     a.ldr(TMP, getYRef(2));
-    a.str(TMP, arm::Mem(a32::sp, 0));
+    a.str(TMP, a32::Mem(a32::sp, 0));
 
     emit_enter_runtime<Update::eHeapAlloc>();
 
     a.mov(ARG1, c_p);
-    runtime_call<5>(return_trace);
+    runtime_call<void (*)(Process *, ErtsCodeMFA *, Eterm, ErtsTracer, Eterm), return_trace>();
 
     emit_leave_runtime<Update::eHeapAlloc>();
     a.add(a32::sp, a32::sp, imm(8));
@@ -169,23 +169,23 @@ void BeamModuleAssembler::emit_i_return_to_trace() {
 }
 
 void BeamModuleAssembler::emit_i_hibernate() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     emit_enter_runtime<Update::eReductions | Update::eHeapAlloc>();
 
     a.mov(ARG1, c_p);
     load_x_reg_array(ARG2);
-    runtime_call<2>(erts_hibernate);
+    runtime_call<void (*)(Process *, Eterm *, int), erts_hibernate>();
 
     emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
 
     a.tst(ARG1, ARG1);
     a.b_eq(error);
 
-    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, flags)));
+    a.ldr(TMP, a32::Mem(c_p, offsetof(Process, flags)));
     mov_imm(VAR, ~F_HIBERNATE_SCHED);
     a.and_(TMP, TMP, VAR);
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, flags)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, flags)));
     a.b(resolve_fragment(ga->get_do_schedule(), disp32MB));
 
     a.bind(error);

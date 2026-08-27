@@ -40,7 +40,7 @@ void BeamGlobalAssembler::emit_internal_hash_helper() {
     emit_enter_runtime_frame();
     emit_enter_runtime();
     a.mov(ARG1, ARG2);
-    runtime_call<1>(erts_internal_hash);
+    runtime_call<erts_ihash_t (*)(Eterm), erts_internal_hash>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
     a.mov(ARG3, ARG1);
@@ -54,12 +54,12 @@ void BeamGlobalAssembler::emit_internal_hash_helper() {
  *
  * Result is returned in RET. ZF is set on success. */
 void BeamGlobalAssembler::emit_hashmap_get_element() {
-    Label fail = a.newLabel();
+    Label fail = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime();
     add(ARG1, ARG1, TAG_PRIMARY_BOXED);
-    runtime_call<3>(get_map_element_hash);
+    runtime_call<Eterm (*)(Eterm, Eterm, erts_ihash_t), get_map_element_hash>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
 
@@ -80,12 +80,12 @@ void BeamGlobalAssembler::emit_hashmap_get_element() {
  *
  * Result is returned in ARG1. ZF is set on success. */
 void BeamGlobalAssembler::emit_flatmap_get_element() {
-    Label fail = a.newLabel();
+    Label fail = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime();
     add(ARG1, ARG1, TAG_PRIMARY_BOXED);
-    runtime_call<2>(get_map_element);
+    runtime_call<Eterm (*)(Eterm, Eterm), get_map_element>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
 
@@ -108,8 +108,8 @@ void BeamGlobalAssembler::emit_new_map_shared() {
     load_x_reg_array(ARG2);
     a.sub(a32::sp, a32::sp, imm(8));
     a.ldr(TMP, TMP_MEM5q);
-    a.str(TMP, arm::Mem(a32::sp, 0)); /* arg5 */
-    runtime_call<5>(erts_gc_new_map);
+    a.str(TMP, a32::Mem(a32::sp, 0)); /* arg5 */
+    runtime_call<Eterm (*)(Process *, Eterm *, Uint, Uint, const Eterm *), erts_gc_new_map>();
     a.add(a32::sp, a32::sp, imm(8));
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -120,7 +120,7 @@ void BeamGlobalAssembler::emit_new_map_shared() {
 void BeamModuleAssembler::emit_new_map(const ArgRegister &Dst,
                                        const ArgWord &Live,
                                        const ArgWord &Size,
-                                       const Span<ArgVal> &args) {
+                                       const Span<const ArgVal> &args) {
     embed_vararg_rodata(args, TMP);
     a.str(TMP, TMP_MEM5q);
     mov_arg(ARG3, Live);
@@ -133,7 +133,7 @@ void BeamModuleAssembler::emit_i_new_small_map_lit(const ArgRegister &Dst,
                                                    const ArgWord &Live,
                                                    const ArgLiteral &Keys,
                                                    const ArgWord &Size,
-                                                   const Span<ArgVal> &args) {
+                                                   const Span<const ArgVal> &args) {
     ASSERT(Size.get() == args.size());
 
     emit_gc_test(ArgWord(0),
@@ -163,7 +163,7 @@ void BeamModuleAssembler::emit_i_new_small_map_lit(const ArgRegister &Dst,
 
     for (const auto &value : data) {
         auto src = load_source(value, TMP);
-        a.str(src.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
+        a.str(src.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
     }
 
     if (dst_is_src) {
@@ -179,11 +179,11 @@ void BeamModuleAssembler::emit_i_new_small_map_lit(const ArgRegister &Dst,
  *
  * Result is returned in RET. ZF is set on success. */
 void BeamGlobalAssembler::emit_i_get_map_element_shared() {
-    Label fail = a.newLabel();
+    Label fail = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime();
-    runtime_call<2>(get_map_element);
+    runtime_call<Eterm (*)(Eterm, Eterm), get_map_element>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
 
@@ -206,7 +206,7 @@ void BeamModuleAssembler::emit_i_get_map_element(const ArgLabel &Fail,
     mov_arg(ARG2, Key);
 
     emit_enter_runtime();
-    runtime_call<2>(get_map_element);
+    runtime_call<Eterm (*)(Eterm, Eterm), get_map_element>();
     emit_leave_runtime();
 
     emit_branch_if_not_value(ARG1, resolve_beam_label(Fail, dispUnknown));
@@ -219,7 +219,7 @@ void BeamModuleAssembler::emit_i_get_map_element(const ArgLabel &Fail,
 void BeamModuleAssembler::emit_i_get_map_elements(const ArgLabel &Fail,
                                                   const ArgSource &Src,
                                                   const ArgWord &Size,
-                                                  const Span<ArgVal> &args) {
+                                                  const Span<const ArgVal> &args) {
     ASSERT(Size.get() == args.size());
     ASSERT((Size.get() % 3) == 0);
 
@@ -232,8 +232,8 @@ void BeamModuleAssembler::emit_i_get_map_elements(const ArgLabel &Fail,
 
     emit_enter_runtime();
     a.sub(a32::sp, a32::sp, imm(8)); /* keep AAPCS alignment */
-    a.str(TMP, arm::Mem(a32::sp, 0)); /* arg5: fs */
-    runtime_call<5>(beam_jit_get_map_elements);
+    a.str(TMP, a32::Mem(a32::sp, 0)); /* arg5: fs */
+    runtime_call<Eterm (*)(Eterm, Eterm *, Eterm *, Uint, Eterm *), beam_jit_get_map_elements>();
     a.add(a32::sp, a32::sp, imm(8));
     emit_leave_runtime();
 
@@ -247,11 +247,11 @@ void BeamModuleAssembler::emit_i_get_map_elements(const ArgLabel &Fail,
  *
  * Result is returned in RET. ZF is set on success. */
 void BeamGlobalAssembler::emit_i_get_map_element_hash_shared() {
-    Label fail = a.newLabel();
+    Label fail = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime();
-    runtime_call<3>(get_map_element_hash);
+    runtime_call<Eterm (*)(Eterm, Eterm, erts_ihash_t), get_map_element_hash>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
 
@@ -276,7 +276,7 @@ void BeamModuleAssembler::emit_i_get_map_element_hash(const ArgLabel &Fail,
     mov_arg(ARG3, Hx);
 
     emit_enter_runtime();
-    runtime_call<3>(get_map_element_hash);
+    runtime_call<Eterm (*)(Eterm, Eterm, erts_ihash_t), get_map_element_hash>();
     emit_leave_runtime();
 
     emit_branch_if_not_value(ARG1, resolve_beam_label(Fail, dispUnknown));
@@ -294,8 +294,8 @@ void BeamGlobalAssembler::emit_update_map_assoc_shared() {
     load_x_reg_array(ARG2);
     a.sub(a32::sp, a32::sp, imm(8));
     a.ldr(TMP, TMP_MEM5q);
-    a.str(TMP, arm::Mem(a32::sp, 0)); /* arg5 */
-    runtime_call<5>(erts_gc_update_map_assoc);
+    a.str(TMP, a32::Mem(a32::sp, 0)); /* arg5 */
+    runtime_call<Eterm (*)(Process *, Eterm *, Uint, Uint, const Eterm *), erts_gc_update_map_assoc>();
     a.add(a32::sp, a32::sp, imm(8));
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -312,7 +312,7 @@ void BeamGlobalAssembler::emit_update_map_single_assoc_shared() {
     emit_enter_runtime<Update::eHeapAlloc>();
 
     a.mov(ARG1, c_p);
-    runtime_call<4>(erts_maps_put);
+    runtime_call<Eterm (*)(Process *, Eterm, Eterm, Eterm), erts_maps_put>();
 
     emit_leave_runtime<Update::eHeapAlloc>();
     emit_leave_runtime_frame();
@@ -323,7 +323,7 @@ void BeamModuleAssembler::emit_update_map_assoc(const ArgSource &Src,
                                                 const ArgRegister &Dst,
                                                 const ArgWord &Live,
                                                 const ArgWord &Size,
-                                                const Span<ArgVal> &args) {
+                                                const Span<const ArgVal> &args) {
     ASSERT(Size.get() == args.size());
 
     if (args.size() == 2) {
@@ -356,8 +356,8 @@ void BeamGlobalAssembler::emit_update_map_exact_guard_shared() {
     load_x_reg_array(ARG2);
     a.sub(a32::sp, a32::sp, imm(8));
     a.ldr(TMP, TMP_MEM5q);
-    a.str(TMP, arm::Mem(a32::sp, 0)); /* arg5 */
-    runtime_call<5>(erts_gc_update_map_exact);
+    a.str(TMP, a32::Mem(a32::sp, 0)); /* arg5 */
+    runtime_call<Eterm (*)(Process *, Eterm *, Uint, Uint, const Eterm *), erts_gc_update_map_exact>();
     a.add(a32::sp, a32::sp, imm(8));
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -369,7 +369,7 @@ void BeamGlobalAssembler::emit_update_map_exact_guard_shared() {
  *
  * Does not return on error. */
 void BeamGlobalAssembler::emit_update_map_exact_body_shared() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -378,8 +378,8 @@ void BeamGlobalAssembler::emit_update_map_exact_body_shared() {
     load_x_reg_array(ARG2);
     a.sub(a32::sp, a32::sp, imm(8));
     a.ldr(TMP, TMP_MEM5q);
-    a.str(TMP, arm::Mem(a32::sp, 0)); /* arg5 */
-    runtime_call<5>(erts_gc_update_map_exact);
+    a.str(TMP, a32::Mem(a32::sp, 0)); /* arg5 */
+    runtime_call<Eterm (*)(Process *, Eterm *, Uint, Uint, const Eterm *), erts_gc_update_map_exact>();
     a.add(a32::sp, a32::sp, imm(8));
 
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -399,7 +399,7 @@ void BeamGlobalAssembler::emit_update_map_exact_body_shared() {
  *
  * Does not return on error. */
 void BeamGlobalAssembler::emit_update_map_single_exact_body_shared() {
-    Label error = a.newLabel();
+    Label error = a.new_label();
 
     a.str(ARG2, TMP_MEM2q);
 
@@ -409,8 +409,8 @@ void BeamGlobalAssembler::emit_update_map_single_exact_body_shared() {
     a.mov(ARG1, c_p);
     lea(TMP, TMP_MEM1q);
     a.sub(a32::sp, a32::sp, imm(8));
-    a.str(TMP, arm::Mem(a32::sp, 0)); /* arg5 */
-    runtime_call<5>(erts_maps_update);
+    a.str(TMP, a32::Mem(a32::sp, 0)); /* arg5 */
+    runtime_call<int (*)(Process *, Eterm, Eterm, Eterm, Eterm *), erts_maps_update>();
     a.add(a32::sp, a32::sp, imm(8));
 
     emit_leave_runtime<Update::eHeapAlloc>();
@@ -425,8 +425,8 @@ void BeamGlobalAssembler::emit_update_map_single_exact_body_shared() {
     a.bind(error);
     a.ldr(TMP, TMP_MEM2q);
     mov_imm(ARG1, BADKEY);
-    a.str(ARG1, arm::Mem(c_p, offsetof(Process, freason)));
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, fvalue)));
+    a.str(ARG1, a32::Mem(c_p, offsetof(Process, freason)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, fvalue)));
     mov_imm(ARG4, 0);
     a.b(labels[raise_exception]);
 }
@@ -436,7 +436,7 @@ void BeamModuleAssembler::emit_update_map_exact(const ArgSource &Src,
                                                 const ArgRegister &Dst,
                                                 const ArgWord &Live,
                                                 const ArgWord &Size,
-                                                const Span<ArgVal> &args) {
+                                                const Span<const ArgVal> &args) {
     ASSERT(Size.get() == args.size());
 
     if (args.size() == 2 && Fail.get() == 0) {

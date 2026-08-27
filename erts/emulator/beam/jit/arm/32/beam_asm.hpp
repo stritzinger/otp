@@ -27,10 +27,6 @@
 #include <algorithm>
 #include <cmath>
 
-#ifndef ASMJIT_ASMJIT_H_INCLUDED
-#    include <asmjit/asmjit.hpp>
-#endif
-
 #include <asmjit/a32.h>
 
 extern "C"
@@ -60,10 +56,13 @@ extern "C"
 
 using namespace asmjit;
 
+#define ERTS_CCONV_ERTS
+#define ERTS_CCONV_JIT
+
 struct BeamAssembler : public BeamAssemblerCommon {
     BeamAssembler() : BeamAssemblerCommon(a) {
         Error err = code.attach(&a);
-        ERTS_ASSERT(!err && "Failed to attach codeHolder");
+        ERTS_ASSERT(err == Error::kOk && "Failed to attach codeHolder");
         
         lateInit();
     }
@@ -107,23 +106,23 @@ protected:
 
     const a32::Gp VAR = a32::r6;
 
-    const arm::Mem TMP_MEM1q = getSchedulerRegRef(
+    const a32::Mem TMP_MEM1q = getSchedulerRegRef(
             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[0]));
-    const arm::Mem TMP_MEM2q = getSchedulerRegRef(
+    const a32::Mem TMP_MEM2q = getSchedulerRegRef(
             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[1]));
-    const arm::Mem TMP_MEM3q = getSchedulerRegRef(
+    const a32::Mem TMP_MEM3q = getSchedulerRegRef(
             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[2]));
-    const arm::Mem TMP_MEM4q = getSchedulerRegRef(
+    const a32::Mem TMP_MEM4q = getSchedulerRegRef(
             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[3]));
-    const arm::Mem TMP_MEM5q = getSchedulerRegRef(
+    const a32::Mem TMP_MEM5q = getSchedulerRegRef(
             offsetof(ErtsSchedulerRegisters, aux_regs.d.TMP_MEM[4]));
 
-    constexpr arm::Mem getSchedulerRegRef(int offset) const {
+    constexpr a32::Mem getSchedulerRegRef(int offset) const {
         ASSERT((offset & (sizeof(Eterm) - 1)) == 0);
-        return arm::Mem(scheduler_registers, offset);
+        return a32::Mem(scheduler_registers, offset);
     }
 
-    constexpr arm::Mem getFRef(int index, size_t size = sizeof(UWord)) const {
+    constexpr a32::Mem getFRef(int index, size_t size = sizeof(UWord)) const {
         int base = offsetof(ErtsSchedulerRegisters, f_reg_array.d);
         int offset = index * sizeof(FloatDef);
 
@@ -131,7 +130,7 @@ protected:
         return getSchedulerRegRef(base + offset);
     }
 
-    constexpr arm::Mem getXRef(int index) const {
+    constexpr a32::Mem getXRef(int index) const {
         int base = offsetof(ErtsSchedulerRegisters, x_reg_array.d);
         int offset = index * sizeof(Eterm);
 
@@ -139,19 +138,19 @@ protected:
         return getSchedulerRegRef(base + offset);
     }
 
-    constexpr arm::Mem getYRef(int index) const {
+    constexpr a32::Mem getYRef(int index) const {
         ASSERT(0 <= index && index <= 1023);
 
-        return arm::Mem(E, index * sizeof(Eterm));
+        return a32::Mem(E, index * sizeof(Eterm));
     }
 
-    constexpr arm::Mem getCARRef(a32::Gp Src) const {
-        return arm::Mem(Src, -TAG_PRIMARY_LIST);
+    constexpr a32::Mem getCARRef(a32::Gp Src) const {
+        return a32::Mem(Src, -TAG_PRIMARY_LIST);
     }
 
-    constexpr arm::Mem getCDRRef(a32::Gp Src,
+    constexpr a32::Mem getCDRRef(a32::Gp Src,
                                  size_t size = sizeof(UWord)) const {
-        return arm::Mem(Src, -TAG_PRIMARY_LIST + sizeof(Eterm));
+        return a32::Mem(Src, -TAG_PRIMARY_LIST + sizeof(Eterm));
     }
 
     /* Loads the X register array into `to`. Remember to sync the registers in
@@ -165,7 +164,7 @@ protected:
     void emit_assert_stack_margin_unused(int margin_words) {
 #ifdef JIT_HARD_DEBUG
         const int margin_bytes = margin_words * sizeof(Eterm);
-        Label next = a.newLabel();
+        Label next = a.new_label();
 
         a.sub(TMP, E, imm(margin_bytes));
         a.cmp(HTOP, TMP);
@@ -195,7 +194,7 @@ protected:
         aligned_call(Target);
     }
     
-    void branch(arm::Mem target) {
+    void branch(a32::Mem target) {
         a.ldr(TMP, target);
         a.bx(TMP);
     }
@@ -223,26 +222,28 @@ protected:
         a.ldr(TMP, target);
         a.blx(TMP);
     }
-    
-    void runtime_call(a32::Gp func, unsigned args) {
-        ASSERT(args < 5);
-        a.blx(func);
-    }
 
-    template<typename T>
-    struct function_arity;
-    template<typename T, typename... Args>
-    struct function_arity<T(Args...)>
-            : std::integral_constant<int, sizeof...(Args)> {};
+    template<typename T, typename = void>
+    struct function_traits;
 
-    template<int expected_arity, typename T>
-    void runtime_call(T(*func)) {
-        static_assert(expected_arity == function_arity<T>());
+    template<typename Range, typename... Domain>
+    struct function_traits<Range (*)(Domain...)> {
+        static constexpr size_t Arity = sizeof...(Domain);
+    };
+
+    template<typename T, T func>
+    void runtime_call() {
         mov_imm(TMP, func);
         a.blx(TMP);
     }
+    
+    template<int Arity>
+    void dynamic_runtime_call(a32::Gp func) {
+        ERTS_CT_ASSERT(Arity <= 4);
+        a.blx(func);
+    }
 
-    constexpr arm::Mem getArgRef(const ArgRegister &arg) const {
+    constexpr a32::Mem getArgRef(const ArgRegister &arg) const {
         if (arg.isXRegister()) {
             return getXRef(arg.as<ArgXRegister>().get());
         } else if (arg.isYRegister()) {
@@ -258,11 +259,11 @@ protected:
      * Export tracing, save_calls, etc are implemented by shared fragments that
      * assume that the respective entry is in ARG1, so we have to copy it over
      * if it isn't already. */
-    arm::Mem emit_setup_dispatchable_call(const a32::Gp &Src) {
+    a32::Mem emit_setup_dispatchable_call(const a32::Gp &Src) {
         return emit_setup_dispatchable_call(Src, active_code_ix);
     }
 
-    arm::Mem emit_setup_dispatchable_call(const a32::Gp &Src,
+    a32::Mem emit_setup_dispatchable_call(const a32::Gp &Src,
                                           const a32::Gp &CodeIndex) {
         if (ARG1 != Src) {
             a.mov(ARG1, Src);
@@ -272,7 +273,7 @@ protected:
         ERTS_CT_ASSERT(offsetof(Export, dispatch) == 0);
         ERTS_CT_ASSERT(offsetof(ErtsDispatchable, addresses) == 0);
 
-        return arm::Mem(ARG1, CodeIndex, arm::lsl(2));
+        return a32::Mem(ARG1, CodeIndex, a32::lsl(2));
     }
 
     /* Prefer `eHeapAlloc` over `eStack | eHeap` when calling
@@ -300,11 +301,11 @@ protected:
     };
 
     void emit_enter_erlang_frame() {
-        a.str(a32::lr, arm::Mem(E, -4).pre());
+        a.str(a32::lr, a32::Mem(E, -4).pre());
     }
 
     void emit_leave_erlang_frame() {
-        a.ldr(a32::lr, arm::Mem(E).post(4));
+        a.ldr(a32::lr, a32::Mem(E).post(4));
     }
 
     void emit_enter_runtime_frame() {
@@ -332,23 +333,23 @@ protected:
         ERTS_CT_ASSERT((Spec & (Update::eReductions | Update::eStack |
                                 Update::eHeap)) == Spec);
         if (Spec & Update::eStack) {
-            a.str(E, arm::Mem(c_p, offsetof(Process, stop)));
+            a.str(E, a32::Mem(c_p, offsetof(Process, stop)));
         } else {
 #ifdef DEBUG
         /* Store some garbage in the process structure to catch missing
          * updates. */
-        a.str(active_code_ix, arm::Mem(c_p, offsetof(Process, stop)));
+        a.str(active_code_ix, a32::Mem(c_p, offsetof(Process, stop)));
 #endif
         }
         if (Spec & Update::eHeap) {
-            a.str(HTOP, arm::Mem(c_p, offsetof(Process, htop)));
+            a.str(HTOP, a32::Mem(c_p, offsetof(Process, htop)));
         } else {
 #ifdef DEBUG
-            a.str(active_code_ix, arm::Mem(c_p, offsetof(Process, htop)));
+            a.str(active_code_ix, a32::Mem(c_p, offsetof(Process, htop)));
 #endif
         }
         if (Spec & Update::eReductions) {
-            a.str(FCALLS, arm::Mem(c_p, offsetof(Process, fcalls)));
+            a.str(FCALLS, a32::Mem(c_p, offsetof(Process, fcalls)));
         }
         // We do not have any X register cached in machine registers
         // so nothing else needs to be saved.
@@ -360,20 +361,20 @@ protected:
             (Spec & (Update::eReductions | Update::eStack | Update::eHeap |
                      Update::eCodeIndex)) == Spec);
         if (Spec & Update::eStack) {
-            a.ldr(E, arm::Mem(c_p, offsetof(Process, stop)));
+            a.ldr(E, a32::Mem(c_p, offsetof(Process, stop)));
         }
         if (Spec & Update::eHeap) {
-            a.ldr(HTOP, arm::Mem(c_p, offsetof(Process, htop)));
+            a.ldr(HTOP, a32::Mem(c_p, offsetof(Process, htop)));
         }
         if (Spec & Update::eReductions) {
-            a.ldr(FCALLS, arm::Mem(c_p, offsetof(Process, fcalls)));
+            a.ldr(FCALLS, a32::Mem(c_p, offsetof(Process, fcalls)));
         }
 
         if (Spec & Update::eCodeIndex) {
             /* Updates the local copy of the active code index, retaining
              * save_calls if active. */
             mov_imm(TMP, &the_active_code_index);
-            a.ldr(TMP, arm::Mem(TMP));
+            a.ldr(TMP, a32::Mem(TMP));
             a.cmp(active_code_ix, imm(ERTS_SAVE_CALLS_CODE_IX));
             a.mov_ne(active_code_ix, TMP);
         }
@@ -432,9 +433,9 @@ protected:
         a.bic(Dst, Src, imm(TAG_PTR_MASK__));
     }
 
-    constexpr arm::Mem emit_boxed_val(a32::Gp Src, int32_t bytes = 0) const {
+    constexpr a32::Mem emit_boxed_val(a32::Gp Src, int32_t bytes = 0) const {
         ASSERT(bytes % sizeof(Eterm) == 0);
-        return arm::Mem(Src, bytes - TAG_PRIMARY_BOXED);
+        return a32::Mem(Src, bytes - TAG_PRIMARY_BOXED);
     }
 
     void emit_branch_if_not_value(a32::Gp reg, Label lbl) {
@@ -511,7 +512,7 @@ protected:
     
     bool is_aarch32_imm(uint32_t value) {
         uint32_t encoded;
-        return arm::Utils::encodeAArch32Imm(value, &encoded);
+        return arm::Utils::encode_aarch32_imm(value, Out(encoded));
     }
 
     void mov_imm(a32::Gp to, std::nullptr_t value) {
@@ -559,17 +560,17 @@ protected:
         }
     }
 
-    void ldur(a32::Gp reg, arm::Mem mem) {
+    void ldur(a32::Gp reg, a32::Mem mem) {
         // TODO
         ASSERT(false);
     }
 
-    void stur(a32::Gp reg, arm::Mem mem) {
+    void stur(a32::Gp reg, a32::Mem mem) {
         // TODO
         ASSERT(false);
     }
 
-    void safe_9bit_imm(uint32_t instId, a32::Gp reg, arm::Mem mem) {
+    void safe_9bit_imm(uint32_t instId, a32::Gp reg, a32::Mem mem) {
         // TODO
         ASSERT(false);
     }
@@ -577,16 +578,16 @@ protected:
     /*
      * ARM has no LEA instruction. Implement our own to enable us
      * to use helpers based on getSchedulerRegRef() that return an
-     * arm::Mem class.
+     * a32::Mem class.
      */
-    void lea(a32::Gp to, arm::Mem mem) {
+    void lea(a32::Gp to, a32::Mem mem) {
         int32_t offset = mem.offset();
 
-        ASSERT(mem.hasBaseReg() && !mem.hasIndex());
+        ASSERT(mem.has_base_reg() && !mem.has_index());
         if (offset == 0) {
-            a.mov(to, a32::Gp(mem.baseId()));
+            a.mov(to, a32::Gp::make_r(mem.base_id()));
         } else {
-            add(to, a32::Gp(mem.baseId()), offset);
+            add(to, a32::Gp::make_r(mem.base_id()), offset);
         }
     }
 
@@ -604,7 +605,7 @@ protected:
     void emit_nyi(const char *msg) {
         // skipping any preparation for the runtime call
         mov_imm(ARG1, msg);
-        runtime_call<1>(i_emit_nyi);
+        runtime_call<void (*)(char *), i_emit_nyi>();
         /* Never returns */
     }
 
@@ -748,10 +749,10 @@ class BeamModuleAssembler : public BeamAssembler,
      * fragments as if they were local. */
     std::unordered_map<void (*)(), Label> _dispatchTable;
 
-    RegisterCache<16, arm::Mem, a32::Gp> reg_cache =
-            RegisterCache<16, arm::Mem, a32::Gp>(scheduler_registers, E, {});
+    RegisterCache<16, a32::Mem, a32::Gp> reg_cache =
+            RegisterCache<16, a32::Mem, a32::Gp>(scheduler_registers, E, {});
 
-    void reg_cache_put(arm::Mem mem, a32::Gp src) {
+    void reg_cache_put(a32::Mem mem, a32::Gp src) {
         if (src != TMP) {
             reg_cache.put(mem, src);
         } else {
@@ -759,12 +760,12 @@ class BeamModuleAssembler : public BeamAssembler,
         }
     }
 
-    a32::Gp find_cache(arm::Mem mem) {
+    a32::Gp find_cache(a32::Mem mem) {
         return reg_cache.find(a.offset(), mem);
     }
 
     /* Works as the STR instruction, but also updates the cache. */
-    void str_cache(a32::Gp src, arm::Mem mem_dst) {
+    void str_cache(a32::Gp src, a32::Mem mem_dst) {
         reg_cache.consolidate(a.offset());
         reg_cache.invalidate(src);
 
@@ -775,9 +776,9 @@ class BeamModuleAssembler : public BeamAssembler,
     }
 
     /* Works as the STMIA instruction, but also updates the cache. */
-    void stmia_cache(arm::Mem mem_dst, a32::Gp src1, a32::Gp src2) {
-        arm::Mem next_dst =
-                arm::Mem(a32::Gp(mem_dst.baseId()),
+    void stmia_cache(a32::Mem mem_dst, a32::Gp src1, a32::Gp src2) {
+        a32::Mem next_dst =
+                a32::Mem(a32::Gp::make_r(mem_dst.base_id()),
                          mem_dst.offset() + sizeof(Eterm));
 
         reg_cache.consolidate(a.offset());
@@ -794,10 +795,10 @@ class BeamModuleAssembler : public BeamAssembler,
     }
 
     /* Works like LDR, but looks in the cache first. */
-    void ldr_cached(a32::Gp dst, arm::Mem mem) {
+    void ldr_cached(a32::Gp dst, a32::Mem mem) {
         a32::Gp cached_reg = find_cache(mem);
 
-        if (cached_reg.isValid()) {
+        if (cached_reg.is_valid()) {
             /* This memory location is cached. */
             if (cached_reg == dst) {
                 comment("skipped fetching of BEAM register");
@@ -843,7 +844,7 @@ class BeamModuleAssembler : public BeamAssembler,
         }
     }
 
-    void mov_preserve_cache(a32::VecD dst, a32::VecD src) {
+    void mov_preserve_cache(a32::Vec dst, a32::Vec src) {
         // TODO
         ASSERT(false);
     }
@@ -864,7 +865,7 @@ class BeamModuleAssembler : public BeamAssembler,
             dst);
     }
 
-    arm::Mem embed_label(const Label &label, enum Displacement disp);
+    a32::Mem embed_label(const Label &label, enum Displacement disp);
 
 public:
     BeamModuleAssembler(BeamGlobalAssembler *ga,
@@ -877,7 +878,7 @@ public:
                         int num_functions,
                         const BeamFile *file = NULL);
 
-    bool emit(unsigned op, const Span<ArgVal> &args);
+    bool emit(unsigned op, const Span<const ArgVal> &args);
 
     void emit_coverage(void *coverage, Uint index, Uint size);
 
@@ -907,11 +908,11 @@ public:
         return BeamAssembler::getCode(labelName);
     }
 
-    void embed_vararg_rodata(const Span<ArgVal> &args, a32::Gp reg);
+    void embed_vararg_rodata(const Span<const ArgVal> &args, a32::Gp reg);
 
     unsigned getCodeSize() {
-        ASSERT(code.hasBaseAddress());
-        return code.codeSize();
+        ASSERT(code.has_base_address());
+        return code.code_size();
     }
 
     void copyCodeHeader(BeamCodeHeader *hdr);
@@ -933,8 +934,8 @@ protected:
                                const ArgSource &Preserve,
                                a32::Gp preserve_reg);
 
-    arm::Mem emit_variable_apply(bool includeI);
-    arm::Mem emit_fixed_apply(const ArgWord &arity, bool includeI);
+    a32::Mem emit_variable_apply(bool includeI);
+    a32::Mem emit_fixed_apply(const ArgWord &arity, bool includeI);
 
     a32::Gp emit_call_fun(bool skip_box_test = false,
                           bool skip_header_test = false);
@@ -953,7 +954,7 @@ protected:
 
     void emit_is_list(Label Fail, a32::Gp Src) {
         preserve_cache([&]() {
-            Label next = a.newLabel();
+            Label next = a.new_label();
 
             a.tst(Src, imm(_TAG_PRIMARY_MASK - TAG_PRIMARY_LIST));
             a.b_eq(next);
@@ -1073,7 +1074,7 @@ protected:
     void emit_validate(const ArgWord &Arity);
     void emit_bs_skip_bits(const ArgLabel &Fail, const ArgRegister &Ctx);
 
-    void emit_linear_search(a32::Gp val, Label fail, const Span<ArgVal> &args);
+    void emit_linear_search(a32::Gp val, Label fail, const Span<const ArgVal> &args);
 
     void emit_float_instr(uint32_t instId,
                           const ArgFRegister &LHS,
@@ -1108,7 +1109,7 @@ protected:
     /* Returns a vector of the untagged and rebased `args`. The adjusted
      * `comparand` is stored in ARG1. */
     const std::vector<ArgVal> emit_select_untag(const ArgSource &Src,
-                                                const Span<ArgVal> &args,
+                                                const Span<const ArgVal> &args,
                                                 a32::Gp comparand,
                                                 Label fail,
                                                 UWord base,
@@ -1118,7 +1119,7 @@ protected:
                               size_t Left,
                               size_t Right,
                               Label fail,
-                              const Span<ArgVal> &args);
+                              const Span<const ArgVal> &args);
 
     void emit_optimized_two_way_select(a32::Gp reg,
                                        const ArgVal &value1,
@@ -1155,14 +1156,14 @@ protected:
      *
      * When the branch type is not `dispUnknown`, this must be used
      * _IMMEDIATELY BEFORE_ the instruction that the label is used in. */
-    arm::Mem embed_constant(const ArgVal &value, enum Displacement disp);
+    a32::Mem embed_constant(const ArgVal &value, enum Displacement disp);
 
     /* Convenience wrapper for embedding raw pointers or immediates. */
     template<typename T,
              std::enable_if_t<std::is_integral<T>::value ||
                                       std::is_pointer<T>::value,
                               bool> = true>
-    arm::Mem embed_constant(T data, enum Displacement disp) {
+    a32::Mem embed_constant(T data, enum Displacement disp) {
         return embed_constant(ArgWord((UWord)data), disp);
     }
 
@@ -1196,12 +1197,12 @@ protected:
 
 #if defined(JIT_HARD_DEBUG)
         /* Verify that the stack has not grown. */
-        Label next = a.newLabel();
+        Label next = a.new_label();
 
         int sp_offset = offsetof(ErtsSchedulerRegisters, initial_sp);
         mov_imm(TMP, sp_offset);
         a.add(TMP, scheduler_registers, TMP);
-        a.ldr(TMP, arm::Mem(TMP));
+        a.ldr(TMP, a32::Mem(TMP));
         a.cmp(a32::sp, TMP);
         a.b_eq(next);
         a.udf(0xdead);
@@ -1217,21 +1218,19 @@ protected:
     struct function_arity<T(Args...)>
             : std::integral_constant<int, sizeof...(Args)> {};
 
-    template<int expected_arity, typename T>
-    void runtime_call(T(*func)) {
-        static_assert(expected_arity == function_arity<T>());
-
-        a.bl(resolve_fragment((void (*)())func, disp32MB));
+    template<typename T, T Func>
+    void runtime_call() {
+        a.bl(resolve_fragment(reinterpret_cast<void (*)()>(Func), disp32MB));
     }
 
     template<typename RegType = a32::Gp>
     struct Variable {
         RegType reg;
-        arm::Mem mem;
+        a32::Mem mem;
 
-        Variable(RegType _r) : Variable(_r, arm::Mem()) {
+        Variable(RegType _r) : Variable(_r, a32::Mem()) {
         }
-        Variable(RegType _r, arm::Mem _mem) : reg(_r), mem(_mem) {
+        Variable(RegType _r, a32::Mem _mem) : reg(_r), mem(_mem) {
         }
     };
 
@@ -1239,7 +1238,7 @@ protected:
         return Variable(tmp, getArgRef(arg));
     }
 
-    Variable<a32::VecD> init_destination(const ArgVal &arg, a32::VecD tmp) {
+    Variable<a32::Vec> init_destination(const ArgVal &arg, a32::Vec tmp) {
         return Variable(tmp, getArgRef(arg));
     }
 
@@ -1260,7 +1259,7 @@ protected:
                 auto val = arg.isImmed() ? arg.as<ArgImmed>().get()
                                          : arg.as<ArgWord>().get();
 
-                if (Support::isIntOrUInt32(val)) {
+                if (Support::is_int_n<32>(val) || Support::is_uint_n<32>(val)) {
                     preserve_cache(
                             [&]() {
                                 mov_imm(tmp, val);
@@ -1305,7 +1304,7 @@ protected:
         } else {
             a32::Gp cached_reg = find_cache(getArgRef(arg));
 
-            if (cached_reg.isValid()) {
+            if (cached_reg.is_valid()) {
                 return load_source(arg, cached_reg);
             } else {
                 return load_source(arg, TMP);
@@ -1330,15 +1329,15 @@ protected:
         return std::make_pair(load_source(Src1, tmp1), load_source(Src2, tmp2));
     }
 
-    Variable<a32::VecD> load_source(const ArgVal &arg, a32::VecD tmp) {
-        arm::Mem mem = getArgRef(arg);
-        if (mem.hasOffset()) {
-            a32::Gp base = a32::Gp(mem.baseId());
+    Variable<a32::Vec> load_source(const ArgVal &arg, a32::Vec tmp) {
+        a32::Mem mem = getArgRef(arg);
+        if (mem.has_offset()) {
+            a32::Gp base = a32::Gp::make_r(mem.base_id());
             lea(TMP, mem);
-            mem = arm::Mem(TMP);
+            mem = a32::Mem(TMP);
         }
         a.vldr_64(tmp, mem);
-        return Variable<a32::VecD>(tmp);
+        return Variable<a32::Vec>(tmp);
     }
 
     void emit_load_args(const ArgSource &Src1,
@@ -1371,26 +1370,26 @@ protected:
     }
 
     void flush_var(const Variable<a32::Gp> &to) {
-        if (to.mem.hasBase()) {
+        if (to.mem.has_base()) {
             str_cache(to.reg, to.mem);
         } else {
             reg_cache.invalidate(to.reg);
         }
     }
 
-    void flush_var(const Variable<a32::VecD> &to) {
-        if (to.mem.hasBase()) {
+    void flush_var(const Variable<a32::Vec> &to) {
+        if (to.mem.has_base()) {
             lea(TMP, to.mem);
-            a.vstr_64(to.reg, arm::Mem(TMP));
+            a.vstr_64(to.reg, a32::Mem(TMP));
         }
     }
 
     enum Relation { none, consecutive, reverse_consecutive };
 
-    static Relation memory_relation(const arm::Mem &mem1,
-                                    const arm::Mem &mem2) {
-        if (mem1.hasBaseReg() && mem2.hasBaseReg() &&
-            mem1.baseId() == mem2.baseId()) {
+    static Relation memory_relation(const a32::Mem &mem1,
+                                    const a32::Mem &mem2) {
+        if (mem1.has_base_reg() && mem2.has_base_reg() &&
+            mem1.base_id() == mem2.base_id()) {
             if (mem1.offset() + sizeof(Eterm) == mem2.offset()) {
                 return consecutive;
             } else if (mem1.offset() == mem2.offset() + sizeof(Eterm)) {
@@ -1402,8 +1401,8 @@ protected:
 
     void flush_vars(const Variable<a32::Gp> &to1,
                     const Variable<a32::Gp> &to2) {
-        const arm::Mem &mem1 = to1.mem;
-        const arm::Mem &mem2 = to2.mem;
+        const a32::Mem &mem1 = to1.mem;
+        const a32::Mem &mem2 = to2.mem;
 
         if (memory_relation(to1.mem, to2.mem) == Relation::consecutive) {
             stmia_cache(mem1, to1.reg, to2.reg);
@@ -1435,13 +1434,13 @@ protected:
         flush_var(to);
     }
 
-    void mov_arg(const ArgRegister &To, arm::Mem From) {
+    void mov_arg(const ArgRegister &To, a32::Mem From) {
         auto to = init_destination(To, TMP);
         a.ldr(to.reg, From);
         flush_var(to);
     }
 
-    void mov_arg(arm::Mem To, const ArgVal &From) {
+    void mov_arg(a32::Mem To, const ArgVal &From) {
         // TODO
         ASSERT(false);
     }
@@ -1476,12 +1475,12 @@ protected:
         a.cmp(gp, tmp.reg);
     }
 
-    void safe_str(a32::Gp gp, arm::Mem mem) {
+    void safe_str(a32::Gp gp, a32::Mem mem) {
         size_t abs_offset = std::abs(mem.offset());
         auto offset = mem.offset();
 
-        ASSERT(mem.hasBaseReg() && !mem.hasIndex());
-        ASSERT(gp.isGp());
+        ASSERT(mem.has_base_reg() && !mem.has_index());
+        ASSERT(gp.is_gp());
 
         if (abs_offset <= disp4KB) {
             a.str(gp, mem);
@@ -1490,8 +1489,8 @@ protected:
              * effective address. */
             a32::Gp addr = (gp != TMP) ? TMP : VAR;
             ASSERT(addr != gp);
-            add(addr, a32::Gp(mem.baseId()), offset);
-            a.str(gp, arm::Mem(addr));
+            add(addr, a32::Gp::make_r(mem.base_id()), offset);
+            a.str(gp, a32::Mem(addr));
         }
     }
 
@@ -1504,8 +1503,8 @@ protected:
         ASSERT(false);
     }
 
-    void safe_stmia(arm::Mem mem, a32::Gp gp1, a32::Gp gp2) {
-        ASSERT(gp1.isGp() && gp2.isGp());
+    void safe_stmia(a32::Mem mem, a32::Gp gp1, a32::Gp gp2) {
+        ASSERT(gp1.is_gp() && gp2.is_gp());
         ASSERT(gp1 != gp2);
         // ldmia always writes to the registers in ascending order 
         // so we need to ensure that gp1.id() < gp2.id()
@@ -1516,16 +1515,16 @@ protected:
         ASSERT(gp1.id() != TMP.id());
         ASSERT(gp2.id() != TMP.id());
         lea(TMP, mem);
-        a.stmia(arm::Mem(TMP), a32::GpList({gp1, gp2}));
+        a.stmia(a32::Mem(TMP), a32::GpList({gp1, gp2}));
     }
 
     // This will use the TMP register if the offset is too large
-    void safe_ldr(a32::Gp gp, arm::Mem mem) {
+    void safe_ldr(a32::Gp gp, a32::Mem mem) {
         size_t abs_offset = std::abs(mem.offset());
         auto offset = mem.offset();
 
-        ASSERT(mem.hasBaseReg() && !mem.hasIndex());
-        ASSERT(gp.isGp());
+        ASSERT(mem.has_base_reg() && !mem.has_index());
+        ASSERT(gp.is_gp());
 
         if (abs_offset <= disp4KB) {
             preserve_cache(
@@ -1534,12 +1533,12 @@ protected:
                     },
                     gp);
         } else {
-            add(TMP, a32::Gp(mem.baseId()), offset);
-            a.ldr(gp, arm::Mem(TMP));
+            add(TMP, a32::Gp::make_r(mem.base_id()), offset);
+            a.ldr(gp, a32::Mem(TMP));
         }
     }
 
-    void safe_ldur(a32::Gp gp, arm::Mem mem) {
+    void safe_ldur(a32::Gp gp, a32::Mem mem) {
 
         // TODO
         ASSERT(false);
@@ -1555,8 +1554,8 @@ protected:
         safe_ldmia(getArgRef(Src1), gp1, gp2);
     }
 
-    void safe_ldmia(arm::Mem mem, a32::Gp gp1, a32::Gp gp2) {
-        ASSERT(gp1.isGp() && gp2.isGp());
+    void safe_ldmia(a32::Mem mem, a32::Gp gp1, a32::Gp gp2) {
+        ASSERT(gp1.is_gp() && gp2.is_gp());
         ASSERT(gp1 != gp2);
         // ldmia always writes to the registers in ascending order 
         // so we need to ensure that gp1.id() < gp2.id()
@@ -1570,7 +1569,7 @@ protected:
         lea(TMP, mem);
         preserve_cache(
                 [&]() {
-                    a.ldmia(arm::Mem(TMP), a32::GpList({gp1, gp2}));
+                    a.ldmia(a32::Mem(TMP), a32::GpList({gp1, gp2}));
                 },
                 gp1,
                 gp2);

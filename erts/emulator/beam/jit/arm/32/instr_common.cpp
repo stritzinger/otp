@@ -72,15 +72,15 @@ using namespace asmjit;
 
 void BeamModuleAssembler::emit_error(int reason) {
     mov_imm(TMP, reason);
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));
     emit_raise_exception();
 }
 
 void BeamModuleAssembler::emit_error(int reason, const ArgSource &Src) {
     mov_imm(TMP, reason);
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));    
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));    
     auto src = load_source(Src, TMP);
-    a.str(src.reg, arm::Mem(c_p, offsetof(Process, fvalue)));
+    a.str(src.reg, a32::Mem(c_p, offsetof(Process, fvalue)));
     emit_raise_exception();
 }
 
@@ -89,7 +89,7 @@ void BeamModuleAssembler::emit_gc_test_preserve(const ArgWord &Need,
                                                 const ArgSource &Preserve,
                                                 a32::Gp preserve_reg) {
     const int32_t bytes_needed = (Need.get() + S_RESERVED) * sizeof(Eterm);
-    Label after_gc_check = a.newLabel();
+    Label after_gc_check = a.new_label();
 
     ASSERT(preserve_reg != ARG3);
 
@@ -139,7 +139,7 @@ void BeamModuleAssembler::emit_gc_test(const ArgWord &Ns,
                                        const ArgWord &Nh,
                                        const ArgWord &Live) {    
     int32_t bytes_needed = (Ns.get() + Nh.get() + S_RESERVED) * sizeof(Eterm);
-    Label after_gc_check = a.newLabel();
+    Label after_gc_check = a.new_label();
 
 #ifdef DEBUG
     comment("(debug: fill dead X registers with garbage)");
@@ -160,7 +160,7 @@ void BeamModuleAssembler::emit_gc_test(const ArgWord &Ns,
 
 void BeamModuleAssembler::emit_validate(const ArgWord &Arity) {
 #ifdef DEBUG
-    Label next = a.newLabel(), crash = a.newLabel();
+    Label next = a.new_label(), crash = a.new_label();
 
     /* Crash if the Erlang heap is not word-aligned */
     a.tst(HTOP, imm(sizeof(Eterm) - 1));
@@ -171,7 +171,7 @@ void BeamModuleAssembler::emit_validate(const ArgWord &Arity) {
     a.b_ne(crash);
 
     /* Crash if we've overrun the stack */
-    lea(TMP, arm::Mem(E, -(int32_t)(S_REDZONE * sizeof(Eterm))));
+    lea(TMP, a32::Mem(E, -(int32_t)(S_REDZONE * sizeof(Eterm))));
     a.cmp(HTOP, TMP);
     a.b_hi(crash);
 
@@ -185,10 +185,10 @@ void BeamModuleAssembler::emit_validate(const ArgWord &Arity) {
     emit_enter_runtime_frame();
 
     for (unsigned i = 0; i < Arity.get(); i++) {
-        mov_arg(ARG1, ArgVal(ArgVal::XReg, i));
+        mov_arg(ARG1, ArgVal(ArgVal::Type::XReg, i));
 
         emit_enter_runtime();
-        runtime_call<1>(beam_jit_validate_term);
+        runtime_call<void (*)(Eterm), beam_jit_validate_term>();
         emit_leave_runtime();
     }
 
@@ -249,12 +249,12 @@ void BeamModuleAssembler::emit_normal_exit() {
     emit_proc_lc_unrequire();
 
     mov_imm(TMP, EXC_NORMAL);
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, freason)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, freason)));
     mov_imm(TMP, 0);
-    a.strb(TMP, arm::Mem(c_p, offsetof(Process, arity)));
+    a.strb(TMP, a32::Mem(c_p, offsetof(Process, arity)));
     a.mov(ARG1, c_p);
     mov_imm(ARG2, am_normal);
-    runtime_call<2>(erts_do_exit_process);
+    runtime_call<void (*)(Process *, Eterm), erts_do_exit_process>();
 
     emit_proc_lc_require();
     emit_leave_runtime<Update::eHeapAlloc | Update::eReductions>();
@@ -270,7 +270,7 @@ void BeamModuleAssembler::emit_continue_exit() {
      emit_proc_lc_unrequire();
  
      a.mov(ARG1, c_p);
-     runtime_call<1>(erts_continue_exit_process);
+     runtime_call<void (*)(Process *), erts_continue_exit_process>();
  
      emit_proc_lc_require();
      emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
@@ -328,7 +328,7 @@ void BeamModuleAssembler::emit_i_get(const ArgSource &Src,
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<2>(erts_pd_hash_get);
+    runtime_call<Eterm (*)(Process *, Eterm), erts_pd_hash_get>();
 
     emit_leave_runtime();
 
@@ -344,7 +344,7 @@ void BeamModuleAssembler::emit_i_get_hash(const ArgConstant &Src,
     emit_enter_runtime();
 
     a.mov(ARG1, c_p);
-    runtime_call<3>(erts_pd_hash_get_with_hx);
+    runtime_call<Eterm (*)(Process *, erts_ihash_t, Eterm), erts_pd_hash_get_with_hx>();
 
     emit_leave_runtime();
 
@@ -363,7 +363,7 @@ void BeamModuleAssembler::emit_load_tuple_ptr(const ArgSource &Src) {
  * tuple as Src. */
 void BeamModuleAssembler::emit_tuple_assertion(const ArgSource &Src,
                                                a32::Gp tuple_reg) {
-    Label ok = a.newLabel(), fatal = a.newLabel();
+    Label ok = a.new_label(), fatal = a.new_label();
     ASSERT(tuple_reg != TMP);
     mov_arg(TMP, Src);
     emit_is_boxed(fatal, TMP);
@@ -387,7 +387,7 @@ void BeamModuleAssembler::emit_i_get_tuple_element(const ArgSource &Src,
 #endif
     // We use VAR instead of TMP because safe_ldr may make use of TMP
     auto dst = init_destination(Dst, VAR);
-    safe_ldr(dst.reg, arm::Mem(ARG1, Element.get()));
+    safe_ldr(dst.reg, a32::Mem(ARG1, Element.get()));
     flush_var(dst);
 }
 
@@ -403,7 +403,7 @@ void BeamModuleAssembler::emit_get_tuple_element_swap(
     mov_arg(Dst, OtherDst);
 
     auto dst = init_destination(OtherDst, VAR);
-    safe_ldr(dst.reg, arm::Mem(ARG1, Element.get()));
+    safe_ldr(dst.reg, a32::Mem(ARG1, Element.get()));
     flush_var(dst);
 }
 
@@ -420,13 +420,13 @@ void BeamModuleAssembler::emit_get_two_tuple_elements(const ArgSource &Src,
     auto dst1 = init_destination(Dst1, ARG2);
     auto dst2 = init_destination(Dst2, ARG3);
 
-    arm::Mem element_ptr = arm::Mem(ARG1, Element.get());
+    a32::Mem element_ptr = a32::Mem(ARG1, Element.get());
     safe_ldmia(element_ptr, dst1.reg, dst2.reg);
     flush_vars(dst1, dst2);
 }
 
 void BeamModuleAssembler::emit_init_yregs(const ArgWord &Size,
-                                          const Span<ArgVal> &args) {
+                                          const Span<const ArgVal> &args) {
     unsigned count = Size.get();
     ASSERT(count == args.size());
     unsigned i = 0;
@@ -504,11 +504,11 @@ void BeamModuleAssembler::emit_move_two_trim(const ArgYRegister &Src1,
     ASSERT(ArgVal::memory_relation(Src1, Src2) ==
            ArgVal::Relation::consecutive);
 
-    if (src_index == 0 && Support::isInt9(trim)) {
+    if (src_index == 0 && Support::is_int_n<9>(trim)) {
         /* Equivalent to ARM64's post-index pair load path:
          * fetch y0/y1 from current E, then trim E once. */
-        a.ldr(dst1.reg, arm::Mem(E, 0));
-        a.ldr(dst2.reg, arm::Mem(E, sizeof(Eterm)));
+        a.ldr(dst1.reg, a32::Mem(E, 0));
+        a.ldr(dst2.reg, a32::Mem(E, sizeof(Eterm)));
         add(E, E, trim);
 
         dst1 = init_destination(Dst1.trimmed(Words.get()), ARG1);
@@ -520,14 +520,14 @@ void BeamModuleAssembler::emit_move_two_trim(const ArgYRegister &Src1,
         /* Try to combine trimming with storing to one of destination
          * registers. */
         if (Dst1.isYRegister() && Dst1.as<ArgYRegister>().get() == Words.get() &&
-            Support::isInt9(trim)) {
-            const arm::Mem dst_ref = arm::Mem(E, trim).pre();
+            Support::is_int_n<9>(trim)) {
+            const a32::Mem dst_ref = a32::Mem(E, trim).pre();
             flush_var(dst2);
             a.str(dst1.reg, dst_ref);
         } else if (Dst2.isYRegister() &&
                    Dst2.as<ArgYRegister>().get() == Words.get() &&
-                   Support::isInt9(trim)) {
-            const arm::Mem dst_ref = arm::Mem(E, trim).pre();
+                   Support::is_int_n<9>(trim)) {
+            const a32::Mem dst_ref = a32::Mem(E, trim).pre();
             flush_var(dst1);
             a.str(dst2.reg, dst_ref);
         } else {
@@ -545,8 +545,8 @@ void BeamModuleAssembler::emit_move_trim(const ArgSource &Src,
 
     if (Src.isYRegister()) {
         auto src_index = Src.as<ArgYRegister>().get();
-        if (src_index == 0 && Support::isInt9(trim)) {
-            const arm::Mem src_ref = arm::Mem(E).post(trim);
+        if (src_index == 0 && Support::is_int_n<9>(trim)) {
+            const a32::Mem src_ref = a32::Mem(E).post(trim);
             auto dst = init_destination(Dst.trimmed(Words.get()), TMP);
             a.ldr(dst.reg, src_ref);
             flush_var(dst);
@@ -557,9 +557,9 @@ void BeamModuleAssembler::emit_move_trim(const ArgSource &Src,
 
     if (Dst.isYRegister()) {
         auto dst_index = Dst.as<ArgYRegister>().get();
-        if (dst_index == Words.get() && Support::isInt9(trim)) {
+        if (dst_index == Words.get() && Support::is_int_n<9>(trim)) {
             auto src = load_source(Src, TMP);
-            const arm::Mem dst_ref = arm::Mem(E, trim).pre();
+            const a32::Mem dst_ref = a32::Mem(E, trim).pre();
             a.str(src.reg, dst_ref);
 
             return;
@@ -656,8 +656,8 @@ void BeamModuleAssembler::emit_swap4(const ArgRegister &R1,
 
 void BeamModuleAssembler::emit_node(const ArgRegister &Dst) {
     a.ldr(TMP, embed_constant(&erts_this_node, disp4KB));
-    a.ldr(TMP, arm::Mem(TMP));
-    mov_arg(Dst, arm::Mem(TMP, offsetof(ErlNode, sysname)));
+    a.ldr(TMP, a32::Mem(TMP));
+    mov_arg(Dst, a32::Mem(TMP, offsetof(ErlNode, sysname)));
 }
 
 void BeamModuleAssembler::emit_put_list(const ArgSource &Hd,
@@ -669,7 +669,7 @@ void BeamModuleAssembler::emit_put_list(const ArgSource &Hd,
     auto dst = init_destination(Dst, TMP);
 
     preserve_cache([&]() {
-        safe_stmia(arm::Mem(HTOP), hd_reg, tl_reg);
+        safe_stmia(a32::Mem(HTOP), hd_reg, tl_reg);
         a.add(HTOP, HTOP, imm(sizeof(Eterm[2])));
         a.sub(dst.reg, HTOP, imm(sizeof(Eterm[2]) - TAG_PRIMARY_LIST));
     });
@@ -688,34 +688,34 @@ void BeamModuleAssembler::emit_put_list_deallocate(const ArgSource &Hd,
     ASSERT(Deallocate.get() <= 1023);
 
     if (Hd.isYRegister() && !Tl.isYRegister() && dealloc > 0 &&
-        Support::isInt9(dealloc)) {
+        Support::is_int_n<9>(dealloc)) {
         auto hd_index = Hd.as<ArgYRegister>().get();
 
         if (hd_index == 0) {
             hd_reg = ARG1;
-            a.ldr(hd_reg, arm::Mem(E).post(dealloc));
+            a.ldr(hd_reg, a32::Mem(E).post(dealloc));
             tl_reg = load_source(Tl, ARG2).reg;
             dealloc = 0;
         }
     } else if (!Hd.isYRegister() && Tl.isYRegister() && dealloc > 0 &&
-               Support::isInt9(dealloc)) {
+               Support::is_int_n<9>(dealloc)) {
         auto tl_index = Tl.as<ArgYRegister>().get();
 
         if (tl_index == 0) {
             tl_reg = ARG2;
-            a.ldr(tl_reg, arm::Mem(E).post(dealloc));
+            a.ldr(tl_reg, a32::Mem(E).post(dealloc));
             hd_reg = load_source(Hd, ARG1).reg;
             dealloc = 0;
         }
     }
 
-    if (!hd_reg.isValid()) {
+    if (!hd_reg.is_valid()) {
         auto [hd, tl] = load_sources(Hd, ARG1, Tl, ARG2);
         hd_reg = hd.reg;
         tl_reg = tl.reg;
     }
 
-    safe_stmia(arm::Mem(HTOP), hd_reg, tl_reg);
+    safe_stmia(a32::Mem(HTOP), hd_reg, tl_reg);
     a.add(HTOP, HTOP, imm(sizeof(Eterm[2])));
     a.sub(dst.reg, HTOP, imm(sizeof(Eterm[2]) - TAG_PRIMARY_LIST));
 
@@ -730,7 +730,7 @@ void BeamModuleAssembler::emit_put_list2(const ArgSource &Hd1,
                                          const ArgSource &Hd2,
                                          const ArgSource &Tl,
                                          const ArgRegister &Dst) {
-    const arm::Mem put_cons = arm::Mem(HTOP).pre();
+    const a32::Mem put_cons = a32::Mem(HTOP).pre();
     
     auto [hd1, hd2] = load_sources(Hd1, ARG1, Hd2, ARG2);
     auto tl = load_source(Tl, ARG3);
@@ -747,19 +747,19 @@ void BeamModuleAssembler::emit_put_list2(const ArgSource &Hd1,
 
 void BeamModuleAssembler::emit_put_tuple2(const ArgRegister &Dst,
                                           const ArgWord &Arity,
-                                          const Span<ArgVal> &args) {
+                                          const Span<const ArgVal> &args) {
     ASSERT(arityval(Arity.get()) == args.size());
     // TODO: check arm64 implementation to optimize this
 
     const size_t size = args.size() + 1;
 
     mov_arg(TMP, Arity);
-    a.str(TMP, arm::Mem(HTOP));
+    a.str(TMP, a32::Mem(HTOP));
     add(HTOP, HTOP, sizeof(Eterm));
 
     for (size_t i = 0; i < args.size(); i++) {
         auto src = load_source(args[i], TMP);
-        a.str(src.reg, arm::Mem(HTOP));
+        a.str(src.reg, a32::Mem(HTOP));
         add(HTOP, HTOP, sizeof(Eterm));
     }
 
@@ -769,7 +769,7 @@ void BeamModuleAssembler::emit_put_tuple2(const ArgRegister &Dst,
 }
 
 void BeamModuleAssembler::emit_self(const ArgRegister &Dst) {
-    mov_arg(Dst, arm::Mem(c_p, offsetof(Process, common.id)));
+    mov_arg(Dst, a32::Mem(c_p, offsetof(Process, common.id)));
 }
 
 void BeamModuleAssembler::emit_copy_words_increment(a32::Gp from,
@@ -784,20 +784,20 @@ void BeamModuleAssembler::emit_copy_words_increment(a32::Gp from,
     /* Inline small copies to avoid loop overhead. */
     if (count <= 16) {
         while (count--) {
-            a.ldr(TMP, arm::Mem(from).post(sizeof(Eterm)));
-            a.str(TMP, arm::Mem(to).post(sizeof(Eterm)));
+            a.ldr(TMP, a32::Mem(from).post(sizeof(Eterm)));
+            a.str(TMP, a32::Mem(to).post(sizeof(Eterm)));
         }
         return;
     }
 
     /* Larger copies use a tiny runtime loop to keep code size reasonable. */
-    Label copy_next = a.newLabel();
-    ASSERT(Support::isUInt16(count));
+    Label copy_next = a.new_label();
+    ASSERT(Support::is_uint_n<16>(count));
     mov_imm(VAR, count);
 
     a.bind(copy_next);
-    a.ldr(TMP, arm::Mem(from).post(sizeof(Eterm)));
-    a.str(TMP, arm::Mem(to).post(sizeof(Eterm)));
+    a.ldr(TMP, a32::Mem(from).post(sizeof(Eterm)));
+    a.str(TMP, a32::Mem(to).post(sizeof(Eterm)));
     a.subs(VAR, VAR, imm(1));
     a.b_ne(copy_next);
 }
@@ -807,9 +807,9 @@ void BeamModuleAssembler::emit_update_record(const ArgAtom &Hint,
                                              const ArgSource &Src,
                                              const ArgRegister &Dst,
                                              const ArgWord &UpdateCount,
-                                             const Span<ArgVal> &updates) {
+                                             const Span<const ArgVal> &updates) {
     const size_t size_on_heap = TupleSize.get() + 1;
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     ASSERT(UpdateCount.get() == updates.size());
     ASSERT((UpdateCount.get() % 2) == 0);
@@ -826,11 +826,11 @@ void BeamModuleAssembler::emit_update_record(const ArgAtom &Hint,
         const auto next_index = updates[0].as<ArgWord>().get();
         const auto &next_value = updates[1].as<ArgSource>();
 
-        a.ldr(VAR, arm::Mem(untagged_src, next_index * sizeof(Eterm)));
+        a.ldr(VAR, a32::Mem(untagged_src, next_index * sizeof(Eterm)));
         cmp_arg(VAR, next_value);
 
         if (destination.reg != src.reg) {
-            Label keep_new = a.newLabel();
+            Label keep_new = a.new_label();
             a.b_ne(keep_new);
             a.mov(destination.reg, src.reg);
             a.bind(keep_new);
@@ -861,15 +861,15 @@ void BeamModuleAssembler::emit_update_record(const ArgAtom &Hint,
                         load_sources(next_value, ARG1, adjacent_value, ARG2);
 
                 if (odd_copy) {
-                    a.ldr(TMP, arm::Mem(untagged_src).post(sizeof(Eterm)));
-                    a.str(TMP, arm::Mem(HTOP).post(sizeof(Eterm)));
-                    a.str(first.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
-                    a.str(second.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
+                    a.ldr(TMP, a32::Mem(untagged_src).post(sizeof(Eterm)));
+                    a.str(TMP, a32::Mem(HTOP).post(sizeof(Eterm)));
+                    a.str(first.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
+                    a.str(second.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
                     add(untagged_src, untagged_src, sizeof(Eterm[2]));
                 } else {
                     add(untagged_src, untagged_src, sizeof(Eterm[2]));
-                    a.str(first.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
-                    a.str(second.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
+                    a.str(first.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
+                    a.str(second.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
                 }
 
                 copy_index = next_index + 2;
@@ -881,13 +881,13 @@ void BeamModuleAssembler::emit_update_record(const ArgAtom &Hint,
         auto value = load_source(next_value, ARG1);
 
         if ((next_index - copy_index) & 1) {
-            a.ldr(ARG2, arm::Mem(untagged_src).post(sizeof(Eterm)));
-            a.str(ARG2, arm::Mem(HTOP).post(sizeof(Eterm)));
-            a.str(value.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
+            a.ldr(ARG2, a32::Mem(untagged_src).post(sizeof(Eterm)));
+            a.str(ARG2, a32::Mem(HTOP).post(sizeof(Eterm)));
+            a.str(value.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
             add(untagged_src, untagged_src, sizeof(Eterm));
         } else {
             add(untagged_src, untagged_src, sizeof(Eterm));
-            a.str(value.reg, arm::Mem(HTOP).post(sizeof(Eterm)));
+            a.str(value.reg, a32::Mem(HTOP).post(sizeof(Eterm)));
         }
 
         copy_index = next_index + 1;
@@ -908,7 +908,7 @@ void BeamModuleAssembler::emit_update_record_in_place(
         const ArgSource &Src,
         const ArgRegister &Dst,
         const ArgWord &UpdateCount,
-        const Span<ArgVal> &updates) {
+        const Span<const ArgVal> &updates) {
     bool all_safe = true;
     ArgSource maybe_immediate = ArgNil();
     const size_t size_on_heap = TupleSize.get() + 1;
@@ -940,14 +940,14 @@ void BeamModuleAssembler::emit_update_record_in_place(
     if (all_safe) {
         comment("skipped copy fallback because all new values are safe");
     } else {
-        Label update = a.newLabel();
+        Label update = a.new_label();
 
         if (!maybe_immediate.isNil()) {
             auto value = load_source(maybe_immediate, TMP);
             emit_is_boxed(update, value.reg);
         }
 
-        a.ldr(ARG4, arm::Mem(c_p, offsetof(Process, high_water)));
+        a.ldr(ARG4, a32::Mem(c_p, offsetof(Process, high_water)));
         a.cmp(untagged_src, HTOP);
         a.b_hs(update);
         a.cmp(untagged_src, ARG4);
@@ -962,7 +962,7 @@ void BeamModuleAssembler::emit_update_record_in_place(
     for (size_t i = 0; i < updates.size(); i += 2) {
         const auto next_index = updates[i].as<ArgWord>().get();
         const auto &next_value = updates[i + 1].as<ArgSource>();
-        arm::Mem mem(untagged_src, next_index * sizeof(Eterm));
+        a32::Mem mem(untagged_src, next_index * sizeof(Eterm));
 
         if (i + 2 < updates.size()) {
             const auto adjacent_index = updates[i + 2].as<ArgWord>().get();
@@ -986,14 +986,14 @@ void BeamModuleAssembler::emit_update_record_in_place(
 
 #ifdef DEBUG
     if (!all_safe && maybe_immediate.isNil()) {
-        Label pointer_ok = a.newLabel();
+        Label pointer_ok = a.new_label();
 
         /* If p->high_water contained a garbage value, a tuple not in
          * the safe part of the new heap could have been destructively
          * updated. */
         comment("sanity-checking tuple pointer");
         mov_arg(ARG2, Dst);
-        a.ldr(ARG4, arm::Mem(c_p, offsetof(Process, heap)));
+        a.ldr(ARG4, a32::Mem(c_p, offsetof(Process, heap)));
         a.cmp(ARG2, HTOP);
         a.b_hs(pointer_ok);
         a.cmp(ARG2, ARG4);
@@ -1001,7 +1001,7 @@ void BeamModuleAssembler::emit_update_record_in_place(
 
         emit_enter_runtime();
         a.mov(ARG1, c_p);
-        runtime_call<2>(beam_jit_invalid_heap_ptr);
+        runtime_call<void (*)(Process *, Eterm), beam_jit_invalid_heap_ptr>();
         emit_leave_runtime();
 
         a.bind(pointer_ok);
@@ -1090,14 +1090,14 @@ void BeamModuleAssembler::emit_is_binary(const ArgLabel &Fail,
     emit_untag_ptr(ARG1, src.reg);
 
     ERTS_CT_ASSERT_FIELD_PAIR(ErlHeapBits, thing_word, size);
-    a.ldmia(arm::Mem(ARG1), a32::GpList({ARG2, ARG3}));
+    a.ldmia(a32::Mem(ARG1), a32::GpList({ARG2, ARG3}));
 
-    Label not_sub_bits = a.newLabel();
+    Label not_sub_bits = a.new_label();
     a.cmp(ARG2, imm(HEADER_SUB_BITS));
     a.b_ne(not_sub_bits);
     {
         ERTS_CT_ASSERT_FIELD_PAIR(ErlSubBits, start, end);
-        safe_ldmia(arm::Mem(ARG1, offsetof(ErlSubBits, start)), ARG3, ARG4);
+        safe_ldmia(a32::Mem(ARG1, offsetof(ErlSubBits, start)), ARG3, ARG4);
         a.sub(ARG3, ARG4, ARG3);
     }
     a.bind(not_sub_bits);
@@ -1118,7 +1118,7 @@ void BeamModuleAssembler::emit_is_binary(const ArgLabel &Fail,
          * Thus, OR-ing this value into the header word forces the check to
          * fail when we have a non-binary bitstring. */
         ERTS_CT_ASSERT((UWORD_CONSTANT(7) << (32 - 3)) > _BITSTRING_TAG_MASK);
-        a.orr(ARG2, ARG2, ARG3, arm::lsl(32 - 3));
+        a.orr(ARG2, ARG2, ARG3, a32::lsl(32 - 3));
         a.cmp(ARG2, imm(_TAG_HEADER_HEAP_BITS));
     }
 
@@ -1173,7 +1173,7 @@ void BeamModuleAssembler::emit_is_function2(const ArgLabel &Fail,
 
         emit_enter_runtime();
         a.mov(ARG1, c_p);
-        runtime_call<3>(erl_is_function);
+        runtime_call<Eterm (*)(Process *, Eterm, Eterm), erl_is_function>();
         emit_leave_runtime();
 
         mov_imm(TMP, am_true);
@@ -1215,7 +1215,7 @@ void BeamModuleAssembler::emit_is_integer(const ArgLabel &Fail,
         return;
     }
 
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     if (always_one_of<BeamTypeId::Integer, BeamTypeId::AlwaysBoxed>(Src)) {
         comment("simplified small test since all other types are boxed");
@@ -1296,7 +1296,7 @@ void BeamModuleAssembler::emit_is_nil(const ArgLabel &Fail,
 void BeamModuleAssembler::emit_is_number(const ArgLabel &Fail,
                                          const ArgSource &Src) {
     auto src = load_source(Src, TMP);
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     if (always_one_of<BeamTypeId::Integer, BeamTypeId::AlwaysBoxed>(Src)) {
         comment("simplified small test since all other types are boxed");
@@ -1340,7 +1340,7 @@ void BeamModuleAssembler::emit_is_number(const ArgLabel &Fail,
 void BeamModuleAssembler::emit_is_pid(const ArgLabel &Fail,
                                       const ArgSource &Src) {
     auto src = load_source(Src, TMP);
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     if (always_one_of<BeamTypeId::Pid, BeamTypeId::AlwaysBoxed>(Src)) {
         comment("simplified local pid test since all other types are boxed");
@@ -1370,7 +1370,7 @@ void BeamModuleAssembler::emit_is_pid(const ArgLabel &Fail,
 void BeamModuleAssembler::emit_is_port(const ArgLabel &Fail,
                                        const ArgSource &Src) {
     auto src = load_source(Src, TMP);
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     if (always_one_of<BeamTypeId::Port, BeamTypeId::AlwaysBoxed>(Src)) {
         comment("simplified local port test since all other types are boxed");
@@ -1409,7 +1409,7 @@ void BeamModuleAssembler::emit_is_reference(const ArgLabel &Fail,
         a32::Gp boxed_ptr = emit_ptr_val(TMP, src.reg);
         a.ldr(TMP, emit_boxed_val(boxed_ptr));
         a.and_(TMP, TMP, imm(_TAG_HEADER_MASK));
-        Label is_ref = a.newLabel();
+        Label is_ref = a.new_label();
         a.cmp(TMP, imm(_TAG_HEADER_EXTERNAL_REF));
         a.b_eq(is_ref);
         a.cmp(TMP, imm(_TAG_HEADER_REF));
@@ -1434,7 +1434,7 @@ void BeamModuleAssembler::emit_i_is_tagged_tuple(const ArgLabel &Fail,
      * element of the tuple with ldp because the empty tuple is always
      * a literal that is padded so that the word after arity is
      * allocated. */
-    a.ldmia(arm::Mem(ARG1), a32::GpList({ARG2, ARG3}));
+    a.ldmia(a32::Mem(ARG1), a32::GpList({ARG2, ARG3}));
 
     cmp_arg(ARG3, Tag);
     a.b_ne(resolve_beam_label(Fail, disp32MB));
@@ -1450,7 +1450,7 @@ void BeamModuleAssembler::emit_i_is_tagged_tuple_ff(const ArgLabel &NotTuple,
                                                     const ArgSource &Src,
                                                     const ArgWord &Arity,
                                                     const ArgAtom &Tag) {
-    Label correct_arity = a.newLabel();
+    Label correct_arity = a.new_label();
     auto src = load_source(Src, ARG1);
 
     emit_is_boxed(resolve_beam_label(NotTuple, dispUnknown), Src, src.reg);
@@ -1461,7 +1461,7 @@ void BeamModuleAssembler::emit_i_is_tagged_tuple_ff(const ArgLabel &NotTuple,
      * element of the tuple with ldp because the empty tuple is always
      * a literal that is padded so that the word after arity is
      * allocated. */
-    a.ldmia(arm::Mem(ARG1), a32::GpList({ARG3, ARG4}));
+    a.ldmia(a32::Mem(ARG1), a32::GpList({ARG3, ARG4}));
 
     cmp_arg(ARG3, Arity);
     a.b_eq(correct_arity);
@@ -1493,7 +1493,7 @@ void BeamModuleAssembler::emit_i_is_tuple(const ArgLabel &Fail,
     if (masked_types<BeamTypeId::MaybeBoxed>(Src) == BeamTypeId::Tuple) {
         comment("skipped header test since we know it's a tuple when boxed");
     } else {
-        a.ldr(TMP, arm::Mem(ARG1));
+        a.ldr(TMP, a32::Mem(ARG1));
         ERTS_CT_ASSERT(_TAG_HEADER_ARITYVAL == 0);
         a.tst(TMP, imm(_TAG_HEADER_MASK));
         a.b_ne(resolve_beam_label(Fail, disp32MB));
@@ -1511,7 +1511,7 @@ void BeamModuleAssembler::emit_i_is_tuple_of_arity(const ArgLabel &Fail,
 
     emit_untag_ptr(ARG1, src.reg);
 
-    a.ldr(VAR, arm::Mem(ARG1));
+    a.ldr(VAR, a32::Mem(ARG1));
     cmp_arg(VAR, Arity);
     a.b_ne(resolve_beam_label(Fail, disp32MB));
 }
@@ -1528,7 +1528,7 @@ void BeamModuleAssembler::emit_i_is_tuple_of_arity_ff(const ArgLabel &NotTuple,
 
     emit_untag_ptr(ARG1, src.reg);
 
-    a.ldr(VAR, arm::Mem(ARG1));
+    a.ldr(VAR, a32::Mem(ARG1));
 
     /* As an optimization for the `error | {ok, Value}` case, skip checking the
      * header word when we know that the only possible boxed type is a tuple. */
@@ -1552,7 +1552,7 @@ void BeamModuleAssembler::emit_i_test_arity(const ArgLabel &Fail,
     auto src = load_source(Src, ARG1);
     emit_untag_ptr(ARG1, src.reg);
 
-    a.ldr(VAR, arm::Mem(ARG1));
+    a.ldr(VAR, a32::Mem(ARG1));
     cmp_arg(VAR, Arity);
     a.b_ne(resolve_beam_label(Fail, disp32MB));
 }
@@ -1564,7 +1564,7 @@ void BeamModuleAssembler::emit_i_test_arity(const ArgLabel &Fail,
  * The result is returned in the Z flag.
  */
 void BeamGlobalAssembler::emit_is_eq_exact_list_shared() {
-    Label loop = a.newLabel(), mid = a.newLabel(), done = a.newLabel();
+    Label loop = a.new_label(), mid = a.new_label(), done = a.new_label();
 
     a.b(mid);
 
@@ -1573,9 +1573,9 @@ void BeamGlobalAssembler::emit_is_eq_exact_list_shared() {
     emit_untag_ptr(ARG2, ARG2);
     /* Remainder: `ldmia` loads registers in ascending register-number order,
      * The registers positioning in the list is irrelevant */
-    a.ldmia(arm::Mem(ARG1), a32::GpList({VAR, TMP}));
+    a.ldmia(a32::Mem(ARG1), a32::GpList({VAR, TMP}));
     a.mov(ARG1, TMP);
-    a.ldmia(arm::Mem(ARG2), a32::GpList({ARG3, ARG4}));
+    a.ldmia(a32::Mem(ARG2), a32::GpList({ARG3, ARG4}));
     a.mov(ARG2, ARG4);
     a.cmp(VAR, ARG3);
     a.b_ne(done);
@@ -1606,27 +1606,27 @@ void BeamGlobalAssembler::emit_is_eq_exact_list_shared() {
  * The result is returned in the Z flag.
  */
 void BeamGlobalAssembler::emit_is_eq_exact_shallow_boxed_shared() {
-    Label loop = a.newLabel();
-    Label done = a.newLabel();
-    Label not_equal = a.newLabel();
+    Label loop = a.new_label();
+    Label done = a.new_label();
+    Label not_equal = a.new_label();
 
     a.orr(TMP, ARG1, ARG2);
     emit_is_boxed(not_equal, TMP);
 
     emit_untag_ptr(ARG1, ARG1);
-    a.ldr(TMP, arm::Mem(ARG1));
+    a.ldr(TMP, a32::Mem(ARG1));
     emit_untag_ptr(ARG2, ARG2);
     a.lsr(ARG3, TMP, imm(_HEADER_ARITY_OFFS));
     a.sub(ARG3, ARG3, imm(1));
 
     a.bind(loop);
     {
-        a.ldr(TMP, arm::Mem(ARG1).post(sizeof(Eterm)));
-        a.ldr(ARG4, arm::Mem(ARG1).post(sizeof(Eterm)));
-        a.ldr(VAR, arm::Mem(ARG2).post(sizeof(Eterm)));
+        a.ldr(TMP, a32::Mem(ARG1).post(sizeof(Eterm)));
+        a.ldr(ARG4, a32::Mem(ARG1).post(sizeof(Eterm)));
+        a.ldr(VAR, a32::Mem(ARG2).post(sizeof(Eterm)));
         a.cmp(TMP, VAR);
         a.b_ne(done);
-        a.ldr(VAR, arm::Mem(ARG2).post(sizeof(Eterm)));
+        a.ldr(VAR, a32::Mem(ARG2).post(sizeof(Eterm)));
         a.cmp(ARG4, VAR);
         a.b_ne(done);
 
@@ -1637,8 +1637,8 @@ void BeamGlobalAssembler::emit_is_eq_exact_shallow_boxed_shared() {
     a.cmn(ARG3, imm(2));
     a.b_eq(done);
 
-    a.ldr(TMP, arm::Mem(ARG1));
-    a.ldr(VAR, arm::Mem(ARG2));
+    a.ldr(TMP, a32::Mem(ARG1));
+    a.ldr(VAR, a32::Mem(ARG2));
     a.cmp(TMP, VAR);
 
     a.bind(done);
@@ -1669,7 +1669,7 @@ void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
             }
             cons_ptr = emit_ptr_val(TMP, x.reg);
             a.sub(TMP, cons_ptr, imm(TAG_PRIMARY_LIST));
-            a.ldmia(arm::Mem(TMP), a32::GpList({ARG1, ARG2}));
+            a.ldmia(a32::Mem(TMP), a32::GpList({ARG1, ARG2}));
             mov_imm(TMP, CAR(list_val(literal)));
             a.cmp(ARG1, TMP);
             a.b_ne(resolve_beam_label(Fail, disp32MB));
@@ -1694,22 +1694,22 @@ void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
 
             return;
         } else if (is_bitstring(literal) && bitstring_size(literal) == 0) {
-            Label not_sub_bits = a.newLabel();
+            Label not_sub_bits = a.new_label();
 
             comment("simplified non-equality test with empty binary");
             emit_is_boxed(resolve_beam_label(Fail, dispUnknown), x.reg);
             emit_untag_ptr(ARG1, x.reg);
 
             ERTS_CT_ASSERT_FIELD_PAIR(ErlHeapBits, thing_word, size);
-            a.ldr(TMP, arm::Mem(ARG1, 0));
-            a.ldr(ARG2, arm::Mem(ARG1, sizeof(Eterm)));
+            a.ldr(TMP, a32::Mem(ARG1, 0));
+            a.ldr(ARG2, a32::Mem(ARG1, sizeof(Eterm)));
 
             a.cmp(TMP, imm(HEADER_SUB_BITS));
             a.b_ne(not_sub_bits);
             {
                 ERTS_CT_ASSERT_FIELD_PAIR(ErlSubBits, start, end);
-                a.ldr(ARG2, arm::Mem(ARG1, offsetof(ErlSubBits, start)));
-                a.ldr(ARG3, arm::Mem(ARG1, offsetof(ErlSubBits, end)));
+                a.ldr(ARG2, a32::Mem(ARG1, offsetof(ErlSubBits, start)));
+                a.ldr(ARG3, a32::Mem(ARG1, offsetof(ErlSubBits, end)));
                 a.sub(ARG2, ARG3, ARG2);
             }
             a.bind(not_sub_bits);
@@ -1738,8 +1738,8 @@ void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
             comment("optimized equality test with empty map");
             emit_is_boxed(resolve_beam_label(Fail, dispUnknown), x.reg);
             emit_untag_ptr(ARG1, x.reg);
-            a.ldr(TMP, arm::Mem(ARG1, 0));
-            a.ldr(ARG2, arm::Mem(ARG1, sizeof(Eterm)));
+            a.ldr(TMP, a32::Mem(ARG1, 0));
+            a.ldr(ARG2, a32::Mem(ARG1, sizeof(Eterm)));
             mov_imm(ARG3, MAP_HEADER_FLATMAP);
             a.cmp(TMP, ARG3);
             a.b_ne(resolve_beam_label(Fail, disp32MB));
@@ -1766,7 +1766,7 @@ void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
     }
 
     /* Both operands are registers or literals. */
-    Label next = a.newLabel();
+    Label next = a.new_label();
     auto y = load_source(Y, ARG2);
 
     a.cmp(x.reg, y.reg);
@@ -1799,7 +1799,7 @@ void BeamModuleAssembler::emit_is_eq_exact(const ArgLabel &Fail,
         a.b_ne(resolve_beam_label(Fail, disp32MB));
     } else {
         emit_enter_runtime();
-        runtime_call<2>(eq);
+        runtime_call<int (*)(Eterm, Eterm), eq>();
         emit_leave_runtime();
         mov_imm(TMP, 0);
         a.cmp(ARG1, TMP);
@@ -1845,7 +1845,7 @@ void BeamModuleAssembler::emit_is_ne_exact(const ArgLabel &Fail,
         a.b_eq(resolve_beam_label(Fail, disp32MB));
     } else {
         emit_enter_runtime();
-        runtime_call<2>(eq);
+        runtime_call<int (*)(Eterm, Eterm), eq>();
         emit_leave_runtime();
         mov_imm(TMP, 0);
         a.cmp(ARG1, TMP);
@@ -1856,7 +1856,7 @@ void BeamModuleAssembler::emit_is_ne_exact(const ArgLabel &Fail,
 void BeamModuleAssembler::emit_is_eq(const ArgLabel &Fail,
                                      const ArgSource &X,
                                      const ArgSource &Y) {
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     mov_arg(ARG2, Y); /* May clobber ARG1. */
     mov_arg(ARG1, X);
@@ -1869,7 +1869,7 @@ void BeamModuleAssembler::emit_is_eq(const ArgLabel &Fail,
     /* Arithmetic equality compare (==): 0 means equal. */
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 1);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
     emit_leave_runtime();
 
     /* erts_cmp_compound(..., eq_only=1) returns 0 when equal. */
@@ -1894,7 +1894,7 @@ void BeamModuleAssembler::emit_is_ne(const ArgLabel &Fail,
     /* Arithmetic equality compare (/=): 0 means equal and must fail. */
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 1);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
     emit_leave_runtime();
 
     mov_imm(TMP, 0);
@@ -1909,7 +1909,7 @@ void BeamModuleAssembler::emit_is_ne(const ArgLabel &Fail,
  * Result is returned in the flags.
  */
 void BeamGlobalAssembler::emit_arith_compare_shared() {
-    Label generic_compare = a.newLabel();
+    Label generic_compare = a.new_label();
 
     emit_enter_runtime_frame();
 
@@ -1922,7 +1922,7 @@ void BeamGlobalAssembler::emit_arith_compare_shared() {
     a.b_ne(generic_compare);
 
     emit_enter_runtime();
-    runtime_call<2>(erts_cmp_atoms);
+    runtime_call<int (*)(Eterm, Eterm), erts_cmp_atoms>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
 
@@ -1935,7 +1935,7 @@ void BeamGlobalAssembler::emit_arith_compare_shared() {
     comment("erts_cmp_compound(X, Y, 0, 0);");
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 0);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
     emit_leave_runtime();
     emit_leave_runtime_frame();
 
@@ -1946,7 +1946,7 @@ void BeamGlobalAssembler::emit_arith_compare_shared() {
 void BeamModuleAssembler::emit_is_lt(const ArgLabel &Fail,
                                      const ArgSource &LHS,
                                      const ArgSource &RHS) {
-    Label generic = a.newLabel(), done = a.newLabel();
+    Label generic = a.new_label(), done = a.new_label();
     const bool both_small = always_small(LHS) && always_small(RHS);
 
     mov_arg(ARG2, RHS); /* May clobber ARG1. */
@@ -1979,7 +1979,7 @@ void BeamModuleAssembler::emit_is_lt(const ArgLabel &Fail,
 void BeamModuleAssembler::emit_is_ge(const ArgLabel &Fail,
                                      const ArgSource &LHS,
                                      const ArgSource &RHS) {
-    Label generic = a.newLabel(), done = a.newLabel();
+    Label generic = a.new_label(), done = a.new_label();
     const bool both_small = always_small(LHS) && always_small(RHS);
 
     mov_arg(ARG2, RHS); /* May clobber ARG1. */
@@ -2017,7 +2017,7 @@ void BeamModuleAssembler::emit_is_ge(const ArgLabel &Fail,
  * Result is returned in the flags.
  */
 void BeamGlobalAssembler::emit_is_in_range_shared() {
-    Label done = a.newLabel();
+    Label done = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime();
@@ -2029,7 +2029,7 @@ void BeamGlobalAssembler::emit_is_in_range_shared() {
     comment("erts_cmp_compound(Src, Min, 0, 0);");
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 0);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
     a.cmp(ARG1, imm(0));
     a.b_lt(done);
 
@@ -2039,7 +2039,7 @@ void BeamGlobalAssembler::emit_is_in_range_shared() {
     comment("erts_cmp_compound(Src, Max, 0, 0);");
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 0);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
     a.cmp(ARG1, imm(0));
 
     a.bind(done);
@@ -2056,7 +2056,7 @@ void BeamModuleAssembler::emit_is_in_range(ArgLabel const &Small,
                                            ArgRegister const &Src,
                                            ArgConstant const &Min,
                                            ArgConstant const &Max) {
-    Label next = a.newLabel(), generic = a.newLabel();
+    Label next = a.new_label(), generic = a.new_label();
     bool need_generic = true;
     auto src = load_source(Src, ARG1);
 
@@ -2159,7 +2159,7 @@ test_done:
  * Result is returned in the flags.
  */
 void BeamGlobalAssembler::emit_is_ge_lt_shared() {
-    Label done = a.newLabel();
+    Label done = a.new_label();
 
     emit_enter_runtime_frame();
     emit_enter_runtime();
@@ -2170,7 +2170,7 @@ void BeamGlobalAssembler::emit_is_ge_lt_shared() {
     comment("erts_cmp_compound(Src, A, 0, 0);");
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 0);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
     a.tst(ARG1, ARG1);
     a.b_mi(done);
 
@@ -2179,12 +2179,12 @@ void BeamGlobalAssembler::emit_is_ge_lt_shared() {
     a.ldr(ARG2, TMP_MEM1q);
     mov_imm(ARG3, 0);
     mov_imm(ARG4, 0);
-    runtime_call<4>(erts_cmp_compound);
+    runtime_call<Sint (*)(Eterm, Eterm, int, int), erts_cmp_compound>();
 
     /* The following instructions implement the signum function. */
     {
-        Label non_negative = a.newLabel(), positive = a.newLabel(),
-              signum_ready = a.newLabel();
+        Label non_negative = a.new_label(), positive = a.new_label(),
+              signum_ready = a.new_label();
 
         a.cmp(ARG1, imm(0));
         a.b_ge(non_negative);
@@ -2234,7 +2234,7 @@ void BeamModuleAssembler::emit_is_ge_lt(ArgLabel const &Fail1,
                                         ArgRegister const &Src,
                                         ArgConstant const &A,
                                         ArgConstant const &B) {
-    Label generic = a.newLabel(), next = a.newLabel();
+    Label generic = a.new_label(), next = a.new_label();
     auto src = load_source(Src, ARG1);
 
     mov_arg(ARG2, A);
@@ -2331,7 +2331,7 @@ void BeamModuleAssembler::emit_is_int_ge(ArgLabel const &Fail,
                                          ArgRegister const &Src,
                                          ArgConstant const &Min) {
     auto src = load_source(Src, ARG1);
-    Label small = a.newLabel(), next = a.newLabel();
+    Label small = a.new_label(), next = a.new_label();
     Label fail = resolve_beam_label(Fail, dispUnknown);
 
     if (always_one_of<BeamTypeId::Integer, BeamTypeId::AlwaysBoxed>(Src)) {
@@ -2394,16 +2394,16 @@ void BeamModuleAssembler::emit_badrecord(const ArgSource &Src) {
 
 void BeamModuleAssembler::emit_catch(const ArgYRegister &Y,
                                      const ArgCatch &Handler) {
-    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.ldr(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     a.add(TMP, TMP, imm(1));
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, catches)));
 
     mov_arg(Y, Handler);
 }
 
 void BeamGlobalAssembler::emit_catch_end_shared() {
-    Label not_throw = a.newLabel(), not_error = a.newLabel(),
-          after_gc = a.newLabel();
+    Label not_throw = a.new_label(), not_error = a.new_label(),
+          after_gc = a.new_label();
 
     /* X0 = THE_NON_VALUE
      * X1 = error reason/thrown value
@@ -2435,7 +2435,7 @@ void BeamGlobalAssembler::emit_catch_end_shared() {
 
         emit_enter_runtime<Update::eHeapAlloc>();
         a.mov(ARG1, c_p);
-        runtime_call<3>(add_stacktrace);
+        runtime_call<Eterm (*)(Process *, Eterm, Eterm), add_stacktrace>();
         emit_leave_runtime<Update::eHeapAlloc>();
     }
 
@@ -2457,10 +2457,10 @@ void BeamGlobalAssembler::emit_catch_end_shared() {
 
         a.add(ARG3, HTOP, imm(TAG_PRIMARY_BOXED));
         mov_imm(TMP, make_arityval(2));
-        a.str(TMP, arm::Mem(HTOP).post(sizeof(Eterm)));
+        a.str(TMP, a32::Mem(HTOP).post(sizeof(Eterm)));
         mov_imm(TMP, am_EXIT);
-        a.str(TMP, arm::Mem(HTOP).post(sizeof(Eterm)));
-        a.str(ARG1, arm::Mem(HTOP).post(sizeof(Eterm)));
+        a.str(TMP, a32::Mem(HTOP).post(sizeof(Eterm)));
+        a.str(ARG1, a32::Mem(HTOP).post(sizeof(Eterm)));
 
         a.mov(ARG1, ARG3);
         a.str(ARG1, getXRef(0));
@@ -2471,7 +2471,7 @@ void BeamGlobalAssembler::emit_catch_end_shared() {
 }
 
 void BeamModuleAssembler::emit_catch_end(const ArgYRegister &CatchTag) {
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     emit_try_end(CatchTag);
     a.ldr(TMP, getXRef(0));
@@ -2481,17 +2481,17 @@ void BeamModuleAssembler::emit_catch_end(const ArgYRegister &CatchTag) {
 }
 
 void BeamModuleAssembler::emit_try_end(const ArgYRegister &CatchTag) {
-    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.ldr(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     a.sub(TMP, TMP, imm(1));
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     mov_imm(TMP, NIL);
     a.str(TMP, getArgRef(CatchTag));
 }
 
 void BeamModuleAssembler::emit_try_end_deallocate(const ArgWord &Deallocate) {
-    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.ldr(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     a.sub(TMP, TMP, imm(1));
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     if (Deallocate.get() > 0) {
         add(E, E, Deallocate.get() * sizeof(Eterm));
     }
@@ -2501,9 +2501,9 @@ void BeamModuleAssembler::emit_try_end_move_deallocate(
         const ArgSource &Src,
         const ArgRegister &Dst,
         const ArgWord &Deallocate) {
-    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.ldr(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     a.sub(TMP, TMP, imm(1));
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     mov_arg(Dst, Src);
     if (Deallocate.get() > 0) {
         add(E, E, Deallocate.get() * sizeof(Eterm));
@@ -2516,22 +2516,22 @@ void BeamModuleAssembler::emit_try_case(const ArgYRegister &CatchTag) {
      * x1 = error reason/thrown value
      * x2 = raw stacktrace
      * x3 = class */
-    a.ldr(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.ldr(TMP, a32::Mem(c_p, offsetof(Process, catches)));
     a.ldr(ARG1, getXRef(3));
     a.str(ARG1, getXRef(0));
     a.sub(TMP, TMP, imm(1));
-    a.str(TMP, arm::Mem(c_p, offsetof(Process, catches)));
+    a.str(TMP, a32::Mem(c_p, offsetof(Process, catches)));
 
     /* The try_tag in the Y slot in the stack frame has already been
      * cleared. */
 
 #ifdef DEBUG
     {
-        Label ok = a.newLabel();
-        Label bad = a.newLabel();
+        Label ok = a.new_label();
+        Label bad = a.new_label();
         comment("Start of assertion code");
-        a.ldr(ARG1, arm::Mem(c_p, offsetof(Process, fvalue)));
-        a.ldr(ARG2, arm::Mem(c_p, offsetof(Process, ftrace)));
+        a.ldr(ARG1, a32::Mem(c_p, offsetof(Process, fvalue)));
+        a.ldr(ARG2, a32::Mem(c_p, offsetof(Process, ftrace)));
         mov_imm(TMP, NIL);
 
         a.cmp(ARG1, TMP);
@@ -2552,12 +2552,12 @@ void BeamModuleAssembler::emit_try_case_end(const ArgSource &Src) {
 }
 
 void BeamGlobalAssembler::emit_raise_shared() {
-    a.str(ARG1, arm::Mem(c_p, offsetof(Process, fvalue)));
-    a.str(ARG2, arm::Mem(c_p, offsetof(Process, ftrace)));
+    a.str(ARG1, a32::Mem(c_p, offsetof(Process, fvalue)));
+    a.str(ARG2, a32::Mem(c_p, offsetof(Process, ftrace)));
 
     emit_enter_runtime();
     a.mov(ARG1, c_p);
-    runtime_call<2>(erts_sanitize_freason);
+    runtime_call<void (*)(Process *, Eterm), erts_sanitize_freason>();
     emit_leave_runtime();
 
     mov_imm(ARG4, 0);
@@ -2584,7 +2584,7 @@ void BeamModuleAssembler::emit_build_stacktrace() {
 
     emit_enter_runtime<Update::eHeapAlloc>();
     a.mov(ARG1, c_p);
-    runtime_call<2>(build_stacktrace);
+    runtime_call<Eterm (*)(Process *, Eterm), build_stacktrace>();
     emit_leave_runtime<Update::eHeapAlloc>();
 
     a.str(ARG1, getXRef(0));
@@ -2593,7 +2593,7 @@ void BeamModuleAssembler::emit_build_stacktrace() {
 /* This instruction has the same semantics as the erlang:raise/3 BIF,
  * except that it can rethrow a raw stack backtrace. */
 void BeamModuleAssembler::emit_raw_raise() {
-    Label next = a.newLabel();
+    Label next = a.new_label();
 
     a.ldr(ARG1, getXRef(2));
     a.ldr(ARG2, getXRef(0));
@@ -2601,7 +2601,7 @@ void BeamModuleAssembler::emit_raw_raise() {
     a.mov(ARG4, c_p);
 
     emit_enter_runtime();
-    runtime_call<4>(raw_raise);
+    runtime_call<int (*)(Eterm, Eterm, Eterm, Process *), raw_raise>();
     emit_leave_runtime();
 
     a.tst(ARG1, ARG1);
@@ -2623,9 +2623,9 @@ void BeamGlobalAssembler::emit_i_test_yield_shared() {
     a.sub(ARG2, ARG3, imm(sizeof(ErtsCodeMFA)));
     a.add(ARG3, ARG3, imm(TEST_YIELD_RETURN_OFFSET));
 
-    a.str(ARG2, arm::Mem(c_p, offsetof(Process, current)));
-    a.ldr(ARG2, arm::Mem(ARG2, offsetof(ErtsCodeMFA, arity)));
-    a.strb(ARG2, arm::Mem(c_p, offsetof(Process, arity)));
+    a.str(ARG2, a32::Mem(c_p, offsetof(Process, current)));
+    a.ldr(ARG2, a32::Mem(ARG2, offsetof(ErtsCodeMFA, arity)));
+    a.strb(ARG2, a32::Mem(c_p, offsetof(Process, arity)));
 
     a.b(labels[context_switch_simplified]);
 }
@@ -2633,7 +2633,7 @@ void BeamGlobalAssembler::emit_i_test_yield_shared() {
 void BeamModuleAssembler::emit_i_test_yield() {
     /* When present, this is guaranteed to be the first instruction after the
      * breakpoint trampoline. */
-    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
+    ASSERT((a.offset() - code.label_offset_from_base(current_label)) ==
            BEAM_ASM_FUNC_PROLOGUE_SIZE);
 
     a.adr(ARG3, current_label);
@@ -2644,13 +2644,13 @@ void BeamModuleAssembler::emit_i_test_yield() {
          * impact on performance but there's little point in doing this unless
          * the user has requested it -- it's an undocumented feature for
          * now. */
-        a.str(ARG3, arm::Mem(c_p, offsetof(Process, i)));
+        a.str(ARG3, a32::Mem(c_p, offsetof(Process, i)));
     }
 
     a.subs(FCALLS, FCALLS, imm(1));
     a.b_le(resolve_fragment(ga->get_i_test_yield_shared(), disp32MB));
 
-    ASSERT((a.offset() - code.labelOffsetFromBase(current_label)) ==
+    ASSERT((a.offset() - code.label_offset_from_base(current_label)) ==
            TEST_YIELD_RETURN_OFFSET);
 }
 
@@ -2661,10 +2661,11 @@ void BeamModuleAssembler::emit_i_yield() {
 }
 
 void BeamModuleAssembler::emit_i_perf_counter() {
-    Label next = a.newLabel(), small = a.newLabel();
+    Label next = a.new_label(), small = a.new_label();
 
     emit_enter_runtime_frame();
-    runtime_call<0>(erts_sys_time_data__.r.o.perf_counter);
+    mov_imm(TMP, erts_sys_time_data__.r.o.perf_counter);
+    dynamic_runtime_call<0>(TMP);
     emit_leave_runtime_frame();
 
     /* We assume perf_counter values fit in 32 bits on this target. */
@@ -2682,8 +2683,8 @@ void BeamModuleAssembler::emit_i_perf_counter() {
         add(ARG3, HTOP, TAG_PRIMARY_BOXED);
 
         mov_imm(TMP, make_pos_bignum_header(1));
-        a.str(TMP, arm::Mem(HTOP).post(sizeof(Eterm)));
-        a.str(ARG1, arm::Mem(HTOP).post(sizeof(Eterm)));
+        a.str(TMP, a32::Mem(HTOP).post(sizeof(Eterm)));
+        a.str(ARG1, a32::Mem(HTOP).post(sizeof(Eterm)));
         a.mov(ARG1, ARG3);
         a.b(next);
     }
