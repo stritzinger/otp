@@ -20,8 +20,11 @@ Builder::Builder(CodeHolder* code) noexcept : BaseBuilder() {
                uint64_t(1) << uint32_t(Arch::kARM_BE  ) |
                uint64_t(1) << uint32_t(Arch::kThumb   ) |
                uint64_t(1) << uint32_t(Arch::kThumb_BE) ;
-  if (code)
+  init_emitter_funcs(this);
+
+  if (code) {
     code->attach(this);
+  }
 }
 Builder::~Builder() noexcept {}
 
@@ -32,7 +35,6 @@ Error Builder::on_attach(CodeHolder& code) noexcept {
   ASMJIT_PROPAGATE(Base::on_attach(code));
 
   _instruction_alignment = _environment.is_arch_thumb() ? uint8_t(2) : uint8_t(4);
-  _instruction_alignment = uint8_t(4);
   update_emitter_funcs(this);
 
   return Error::kOk;

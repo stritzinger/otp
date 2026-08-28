@@ -858,6 +858,7 @@ static ASMJIT_INLINE InstId recombine_inst_id(InstId inst_id, uint32_t cc, uint3
 Assembler::Assembler(CodeHolder* code) noexcept : BaseAssembler() {
   _arch_mask = (uint64_t(1) << uint32_t(Arch::kARM  )) |
                (uint64_t(1) << uint32_t(Arch::kThumb)) ;
+  init_emitter_funcs(this);
 
   if (code) {
     code->attach(this);
@@ -10893,7 +10894,7 @@ Error Assembler::_emit(InstId inst_id, const Operand_& o0, const Operand_& o1, c
     writer.done(this);
 
     reset_state();
-    return kErrorOk;
+    return Error::kOk;
   }
 
   // Emit - Failure
@@ -10936,14 +10937,14 @@ Error Assembler::align(AlignMode align_mode, uint32_t alignment) {
     return report_error(make_error(Error::kInvalidArgument));
 
   if (alignment <= 1)
-    return kErrorOk;
+    return Error::kOk;
 
   if (ASMJIT_UNLIKELY(alignment > Globals::kMaxAlignment || !Support::is_power_of_2(alignment)))
     return report_error(make_error(Error::kInvalidArgument));
 
   uint32_t i = uint32_t(Support::align_up_diff<size_t>(offset(), alignment));
   if (i == 0)
-    return kErrorOk;
+    return Error::kOk;
 
   CodeWriter writer(this);
   ASMJIT_PROPAGATE(writer.ensure_space(this, i));
@@ -10991,7 +10992,7 @@ Error Assembler::align(AlignMode align_mode, uint32_t alignment) {
   }
 #endif
 
-  return kErrorOk;
+  return Error::kOk;
 }
 
 // a32::Assembler - Events

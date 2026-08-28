@@ -13,6 +13,7 @@
 #include <asmjit/support/support.h>
 #include <asmjit/arm/a32emithelper_p.h>
 #include <asmjit/arm/a32formatter_p.h>
+#include <asmjit/arm/a32instapi_p.h>
 #include <asmjit/arm/a32operand.h>
 
 ASMJIT_BEGIN_SUB_NAMESPACE(a32)
@@ -375,7 +376,7 @@ static Error ASMJIT_CDECL Emitter_emit_args_assignment(BaseEmitter* emitter, con
   return make_error(Error::kInvalidState);
 }
 
-void assignEmitterFuncs(BaseEmitter* emitter) {
+void init_emitter_funcs(BaseEmitter* emitter) {
   emitter->_funcs.emit_prolog = Emitter_emit_prolog;
   emitter->_funcs.emit_epilog = Emitter_emit_epilog;
   emitter->_funcs.emit_args_assignment = Emitter_emit_args_assignment;
@@ -384,9 +385,8 @@ void assignEmitterFuncs(BaseEmitter* emitter) {
   emitter->_funcs.format_instruction = FormatterInternal::format_instruction;
 #endif
 
-#ifndef ASMJIT_NO_VALIDATION
-  // TODO: AArch32.
-  // emitter->_funcs.validate = InstInternal::validate;
+#ifndef ASMJIT_NO_INTROSPECTION
+  emitter->_funcs.validate = InstInternal::validate;
 #endif
 }
 

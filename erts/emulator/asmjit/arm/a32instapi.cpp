@@ -34,14 +34,14 @@ InstId string_to_inst_id(const char* s, size_t len) noexcept {
 // a32::InstAPI - Validation
 // =========================
 
-#ifndef ASMJIT_NO_VALIDATION
+#ifndef ASMJIT_NO_INTROSPECTION
 Error validate(const BaseInst& inst, const Operand_* operands, size_t op_count, ValidationFlags validation_flags) noexcept {
   // TODO: AArch32 tooling.
   Support::maybe_unused(inst, operands, op_count, validation_flags);
 
-  return kErrorOk;
+  return Error::kOk;
 }
-#endif // !ASMJIT_NO_VALIDATION
+#endif // !ASMJIT_NO_INTROSPECTION
 
 // a32::InstAPI - Introspection
 // ============================
@@ -200,7 +200,7 @@ Error query_rw_info(const BaseInst& inst, const Operand_* operands, size_t op_co
         rwOp._write_byte_mask &= accessMask;
       }
     }
-    return kErrorOk;
+    return Error::kOk;
   }
   else {
     // TODO: [ARM] Not finished introspection.
@@ -212,7 +212,7 @@ Error query_features(const BaseInst& inst, const Operand_* operands, size_t op_c
   // TODO: AArch32 tooling.
   Support::maybe_unused(inst, operands, op_count, out);
 
-  return kErrorOk;
+  return Error::kOk;
 }
 #endif // !ASMJIT_NO_INTROSPECTION
 

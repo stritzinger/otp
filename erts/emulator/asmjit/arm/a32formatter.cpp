@@ -33,12 +33,12 @@ ASMJIT_FAVOR_SIZE Error FormatterInternal::format_instruction(
 
   // Format instruction options and instruction mnemonic.
   InstId inst_id = inst.real_id();
-  if (inst_id < Inst::_kIdCount) {
-    InstStringifyOptions stringifyOptions =
+  if (inst_id != Inst::kIdNone && inst_id < Inst::_kIdCount) {
+    InstStringifyOptions stringify_options =
       Support::test(format_flags, FormatFlags::kShowAliases)
         ? InstStringifyOptions::kAliases
         : InstStringifyOptions::kNone;
-    ASMJIT_PROPAGATE(InstInternal::inst_id_to_string(inst_id, stringifyOptions, sb));
+    ASMJIT_PROPAGATE(InstInternal::inst_id_to_string(inst_id, stringify_options, sb));
   }
   else {
     ASMJIT_PROPAGATE(sb.append_format("[InstId=#%u]", unsigned(inst_id)));
@@ -60,7 +60,7 @@ ASMJIT_FAVOR_SIZE Error FormatterInternal::format_instruction(
     ASMJIT_PROPAGATE(format_operand(sb, format_flags, emitter, arch, op));
   }
 
-  return kErrorOk;
+  return Error::kOk;
 }
 
 ASMJIT_END_SUB_NAMESPACE

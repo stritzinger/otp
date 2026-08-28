@@ -11,6 +11,7 @@
 
 #include <asmjit/core/formatter.h>
 #include <asmjit/core/string.h>
+#include <asmjit/support/span.h>
 #include <asmjit/arm/armformatter_p.h>
 #include <asmjit/arm/a32globals.h>
 
