@@ -437,39 +437,56 @@ void BeamModuleAssembler::emit_i_bs_skip_bits2(const ArgRegister &Ctx,
     }
 }
 
-void BeamModuleAssembler::emit_i_bs_get_binary2(const ArgRegister &Ctx,
-                                                const ArgLabel &Fail,
-                                                const ArgWord &Live,
-                                                const ArgSource &Size,
-                                                const ArgWord &Flags,
-                                                const ArgRegister &Dst) {
-    Label fail = resolve_beam_label(Fail, disp32MB);
-    const int unit = Flags.get() >> 3;
+void BeamModuleAssembler::emit_bs_get_binary(const ArgWord heap_need,
+                                             const ArgRegister &Ctx,
+                                             const ArgLabel &Fail,
+                                             const ArgWord &Live,
+                                             const ArgSource &Size,
+                                             const ArgWord &Unit,
+                                             const ArgRegister &Dst) {
+    Label fail;
+    int unit;
+    
+    fail = resolve_beam_label(Fail, dispUnknown);
+    unit = Unit.get();
 
     if (emit_bs_get_field_size(Size, unit, fail, ARG2) >= 0) {
         a.str(ARG2, TMP_MEM1q);
 
         mov_arg(ARG4, Ctx);
 
-        emit_gc_test_preserve(ArgWord(BUILD_SUB_BITSTRING_HEAP_NEED),
-                              Live,
-                              Ctx,
-                              ARG4);
+        emit_gc_test_preserve(heap_need, Live, Ctx, ARG4);
 
-        emit_untag_ptr(ARG4, ARG4);
+        emit_untag_ptr(ARG3, ARG4);
 
         emit_enter_runtime<Update::eHeapOnlyAlloc>();
 
         a.mov(ARG1, c_p);
         a.ldr(ARG2, TMP_MEM1q);
-        mov_imm(ARG3, Flags.get());
-        runtime_call<Eterm (*)(Process *, Uint, ErlSubBits *), erts_bs_get_binary_2>();
+        runtime_call<Eterm (*)(Process *, Uint, ErlSubBits *), 
+                     erts_bs_get_binary_2>();
 
         emit_leave_runtime<Update::eHeapOnlyAlloc>();
 
         emit_branch_if_not_value(ARG1, fail);
+    
         mov_arg(Dst, ARG1);
     }
+}
+
+void BeamModuleAssembler::emit_i_bs_get_binary2(const ArgRegister &Ctx,
+                                                const ArgLabel &Fail,
+                                                const ArgWord &Live,
+                                                const ArgSource &Size,
+                                                const ArgWord &Unit,
+                                                const ArgRegister &Dst) {
+    emit_bs_get_binary(ArgWord(BUILD_SUB_BITSTRING_HEAP_NEED),
+                         Ctx,
+                         Fail,
+                         Live,
+                         Size,
+                         Unit,
+                         Dst);
 }
 
 void BeamModuleAssembler::emit_i_bs_get_bin_and_tail(
@@ -2112,12 +2129,11 @@ void BeamModuleAssembler::emit_i_bs_match_test_heap(ArgLabel const &Fail,
                 mov_arg(Dst, ARG1);
             } else {
                 mov_arg(ARG4, Ctx);
-                emit_untag_ptr(ARG4, ARG4);
+                emit_untag_ptr(ARG3, ARG4);
 
                 emit_enter_runtime<Update::eHeapOnlyAlloc>();
                 a.mov(ARG1, c_p);
                 mov_imm(ARG2, bits);
-                mov_imm(ARG3, 0);
                 runtime_call<Eterm (*)(Process *, Uint, ErlSubBits *), erts_bs_get_binary_2>();
                 emit_leave_runtime<Update::eHeapOnlyAlloc>();
 
