@@ -169,25 +169,21 @@ void BeamModuleAssembler::emit_i_return_to_trace() {
 }
 
 void BeamModuleAssembler::emit_i_hibernate() {
-    Label error = a.new_label();
-
     emit_enter_runtime<Update::eReductions | Update::eHeapAlloc>();
 
     a.mov(ARG1, c_p);
     load_x_reg_array(ARG2);
+    mov_imm(ARG3, 0);
     runtime_call<void (*)(Process *, Eterm *, int), erts_hibernate>();
 
     emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
-
-    a.tst(ARG1, ARG1);
-    a.b_eq(error);
 
     a.ldr(TMP, a32::Mem(c_p, offsetof(Process, flags)));
     mov_imm(VAR, ~F_HIBERNATE_SCHED);
     a.and_(TMP, TMP, VAR);
     a.str(TMP, a32::Mem(c_p, offsetof(Process, flags)));
-    a.b(resolve_fragment(ga->get_do_schedule(), disp32MB));
-
-    a.bind(error);
-    emit_raise_exception(&BIF_TRAP_EXPORT(BIF_hibernate_3)->info.mfa);
+    
+    mov_imm(TMP, am_ok);
+    a.str(TMP, getXRef(0));
+    fragment_call(ga->get_dispatch_return());
 }
