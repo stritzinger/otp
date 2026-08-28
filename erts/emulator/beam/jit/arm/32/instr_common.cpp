@@ -2289,7 +2289,8 @@ void BeamModuleAssembler::emit_is_ge_ge(ArgLabel const &Fail1,
                 a.cmp(TMP, VAR);
                 a.b_lo(resolve_beam_label(Fail2, disp32MB));
             },
-            TMP);
+            TMP,
+            VAR);
 }
 
 /*
@@ -2321,7 +2322,8 @@ void BeamModuleAssembler::emit_is_int_in_range(ArgLabel const &Fail,
                 a.cmp(TMP, VAR);
                 a.b_hi(resolve_beam_label(Fail, disp32MB));
             },
-            TMP);
+            TMP,
+            VAR);
 }
 
 /*
