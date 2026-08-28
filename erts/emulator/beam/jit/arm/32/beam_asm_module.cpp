@@ -246,6 +246,7 @@ void BeamModuleAssembler::emit_i_breakpoint_trampoline() {
 }
 
 void BeamGlobalAssembler::emit_i_line_breakpoint_trampoline_shared() {
+    a.bind(labels[i_line_breakpoint_cleanup]);
     emit_nyi("emit_i_line_breakpoint_trampoline_shared");
 }
 
