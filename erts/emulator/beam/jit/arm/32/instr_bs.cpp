@@ -1493,42 +1493,54 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
             {
                 Label ok = a.new_label();
                 if (seg.type == am_append || seg.type == am_private_append) {
-                    mov_imm(ARG3, seg.unit);
-                    mov_arg(ARG2, seg.src);
-                    a.mov(ARG1, c_p);
+                    mov_imm(ARG4, seg.unit);
+                    mov_arg(ARG3, seg.src);
+                    a.mov(ARG2, c_p);
+                    lea(ARG1, 
+                        getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
+                                                    aux_regs.d.erl_bits_state)));
                     emit_enter_runtime<Update::eReductions>();
-                    runtime_call<int (*)(Process *, Eterm, Uint),
-                                 erts_new_bs_put_binary_all>();
+                    runtime_call<int (*)(ErlBitsState *, Process *, Eterm, Uint),
+                                 erts_bs_put_binary_all>();
                     emit_leave_runtime<Update::eReductions>();
                 } else if (seg.effectiveSize >= 0) {
-                    mov_imm(ARG3, seg.effectiveSize);
-                    mov_arg(ARG2, seg.src);
-                    a.mov(ARG1, c_p);
+                    mov_imm(ARG4, seg.effectiveSize);
+                    mov_arg(ARG3, seg.src);
+                    a.mov(ARG2, c_p);
+                    lea(ARG1, 
+                        getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
+                                                    aux_regs.d.erl_bits_state)));                    
                     emit_enter_runtime<Update::eReductions>();
-                    runtime_call<int (*)(Process *, Eterm, Uint),
-                                 erts_new_bs_put_binary>();
+                    runtime_call<int (*)(ErlBitsState *, Process *, Eterm, Uint),
+                                 erts_bs_put_binary>();
                     emit_leave_runtime<Update::eReductions>();
                 } else if (seg.size.isAtom() &&
                            seg.size.as<ArgAtom>().get() == am_all) {
-                    mov_imm(ARG3, seg.unit);
-                    mov_arg(ARG2, seg.src);
-                    a.mov(ARG1, c_p);
+                    mov_imm(ARG4, seg.unit);
+                    mov_arg(ARG3, seg.src);
+                    a.mov(ARG2, c_p);
+                    lea(ARG1, 
+                        getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
+                                                    aux_regs.d.erl_bits_state)));                    
                     emit_enter_runtime<Update::eReductions>();
-                    runtime_call<int (*)(Process *, Eterm, Uint),
-                                 erts_new_bs_put_binary_all>();
+                    runtime_call<int (*)(ErlBitsState *, Process *, Eterm, Uint),
+                                 erts_bs_put_binary_all>();
                     emit_leave_runtime<Update::eReductions>();
                 } else {
-                    mov_arg(ARG3, seg.size);
-                    a.asr(ARG3, ARG3, imm(_TAG_IMMED1_SIZE));
+                    mov_arg(ARG4, seg.size);
+                    a.asr(ARG4, ARG4, imm(_TAG_IMMED1_SIZE));
                     if (seg.unit != 1) {
                         mov_imm(ARG2, seg.unit);
-                        a.mul(ARG3, ARG3, ARG2);
+                        a.mul(ARG4, ARG4, ARG2);
                     }
-                    mov_arg(ARG2, seg.src);
-                    a.mov(ARG1, c_p);
+                    mov_arg(ARG3, seg.src);
+                    a.mov(ARG2, c_p);
+                    lea(ARG1, 
+                        getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
+                                                    aux_regs.d.erl_bits_state)));
                     emit_enter_runtime<Update::eReductions>();
-                    runtime_call<int (*)(Process *, Eterm, Uint),
-                                 erts_new_bs_put_binary>();
+                    runtime_call<int (*)(ErlBitsState *, Process *, Eterm, Uint),
+                                 erts_bs_put_binary>();
                     emit_leave_runtime<Update::eReductions>();
                 }
 
@@ -1561,21 +1573,27 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
         case am_float:
             {
                 if (seg.effectiveSize >= 0) {
-                    mov_imm(ARG3, seg.effectiveSize);
+                    mov_imm(ARG4, seg.effectiveSize);
                 } else {
-                    mov_arg(ARG3, seg.size);
-                    a.asr(ARG3, ARG3, imm(_TAG_IMMED1_SIZE));
+                    mov_arg(ARG4, seg.size);
+                    a.asr(ARG4, ARG4, imm(_TAG_IMMED1_SIZE));
                     if (seg.unit != 1) {
                         mov_imm(ARG2, seg.unit);
-                        a.mul(ARG3, ARG3, ARG2);
+                        a.mul(ARG4, ARG4, ARG2);
                     }
                 }
-                mov_arg(ARG2, seg.src);
-                mov_imm(ARG4, seg.flags);
-                a.mov(ARG1, c_p);
+                mov_arg(ARG3, seg.src);
+                a.mov(ARG2, c_p);
+                lea(ARG1, 
+                    getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
+                                                aux_regs.d.erl_bits_state)));
                 emit_enter_runtime();
-                runtime_call<Eterm (*)(Process *, Eterm, Uint, Uint),
-                             erts_new_bs_put_float>();
+                a.sub(a32::sp, a32::sp, imm(8));
+                a.mov(TMP, seg.flags);
+                a.str(TMP, a32::Mem(a32::sp, 0));
+                runtime_call<Eterm (*)(ErlBitsState *, Process *, Eterm, Uint, int),
+                             erts_bs_put_float>();
+                a.add(a32::sp, a32::sp, imm(8));
                 emit_leave_runtime();
                 if (Fail.get() == 0) {
                     mov_imm(ARG4,
@@ -1606,13 +1624,17 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                     a.b(ok);
                 } else {
                     mov_arg(ARG2, seg.src);
-                    mov_imm(ARG4, seg.flags);
                     lea(ARG1,
                         getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
                                                     aux_regs.d.erl_bits_state)));
                     emit_enter_runtime();
-                    runtime_call<int (*)(ErlBitsState *, Eterm, Uint, Uint),
-                                 erts_new_bs_put_integer>();
+                    if (seg.flags & BSF_LITTLE) {
+                        runtime_call<int (*)(ErlBitsState *, Eterm, Uint),
+                                     erts_bs_put_integer_le>();
+                    } else {
+                        runtime_call<int (*)(ErlBitsState *, Eterm, Uint),
+                                     erts_bs_put_integer_be>();
+                    }
                     emit_leave_runtime();
                     a.tst(ARG1, ARG1);
                     a.b_eq(op_fail);
@@ -1664,28 +1686,14 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                                             aux_regs.d.erl_bits_state)));
             emit_enter_runtime();
             runtime_call<void (*)(ErlBitsState *, byte *, Uint),
-                         erts_new_bs_put_string>();
+                         erts_bs_put_string>();
             emit_leave_runtime();
             break;
         }
         case am_utf8:
-            mov_arg(ARG2, seg.src);
-            lea(ARG1,
-                getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
-                                            aux_regs.d.erl_bits_state)));
-            emit_enter_runtime();
-            runtime_call<int (*)(ErlBitsState *, Eterm), erts_bs_put_utf8>();
-            emit_leave_runtime();
-            if (Fail.get() == 0) {
-                mov_imm(ARG4,
-                        beam_jit_update_bsc_reason_info(seg.error_info,
-                                                        BSC_REASON_BADARG,
-                                                        BSC_INFO_TYPE,
-                                                        BSC_VALUE_ARG1));
-                mov_arg(ARG1, seg.src);
-            }
-            a.tst(ARG1, ARG1);
-            a.b_eq(resolve_label(error, dispUnknown));
+            // TODO: port bit alignement optimizations
+            // use  bit_offset, is_byte_aligned instead of -1, false
+            emit_construct_utf8(seg.src, -1, false);
             break;
         case am_utf16:
             {
@@ -1696,7 +1704,8 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                     getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
                                                 aux_regs.d.erl_bits_state)));
                 emit_enter_runtime();
-                runtime_call<int (*)(struct erl_bits_state *, Eterm, Uint), erts_bs_put_utf16>();
+                runtime_call<int (*)(struct erl_bits_state *, Eterm, Uint), 
+                             erts_bs_put_utf16>();
                 emit_leave_runtime();
                 a.tst(ARG1, ARG1);
                 a.b_ne(ok);
@@ -1717,13 +1726,17 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                 Label ok = a.new_label();
                 mov_arg(ARG2, seg.src);
                 mov_imm(ARG3, 4 * 8);
-                mov_imm(ARG4, seg.flags);
                 lea(ARG1,
                     getSchedulerRegRef(offsetof(ErtsSchedulerRegisters,
                                                 aux_regs.d.erl_bits_state)));
                 emit_enter_runtime();
-                runtime_call<int (*)(ErlBitsState *, Eterm, Uint, Uint),
-                             erts_new_bs_put_integer>();
+                if (seg.flags & BSF_LITTLE) {
+                    runtime_call<int (*)(ErlBitsState *, Eterm, Uint),
+                                 erts_bs_put_integer_le>();
+                } else {
+                    runtime_call<int (*)(ErlBitsState *, Eterm, Uint),
+                                 erts_bs_put_integer_be>();
+                }
                 emit_leave_runtime();
                 a.tst(ARG1, ARG1);
                 a.b_ne(ok);
