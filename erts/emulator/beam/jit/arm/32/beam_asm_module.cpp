@@ -253,6 +253,13 @@ void BeamModuleAssembler::emit_i_line_breakpoint_trampoline() {
     emit_nyi("emit_i_line_breakpoint_trampoline");
 }
 
+enum erts_is_line_breakpoint BeamGlobalAssembler::is_line_breakpoint_trampoline(
+        ErtsCodePtr addr) {
+    (void)addr;
+    erts_exit(ERTS_ERROR_EXIT,
+              "NYI: is_line_breakpoint_trampoline\n");
+}
+
 static void i_emit_nyi(char *msg) {
     erts_exit(ERTS_ERROR_EXIT, "NYI: %s\n", msg);
 }
