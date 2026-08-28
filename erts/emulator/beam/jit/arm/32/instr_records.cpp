@@ -24,7 +24,19 @@
 
 void BeamModuleAssembler::emit_is_any_native_record(const ArgLabel &Fail,
                                                     const ArgRegister &Src) {
-    emit_nyi("emit_is_any_native_record");
+    auto src = load_source(Src, ARG3);
+
+    emit_is_boxed(resolve_beam_label(Fail, dispUnknown), Src, src.reg);
+
+    preserve_cache(
+            [&]() {
+                a32::Gp boxed_ptr = emit_ptr_val(TMP, src.reg);
+                a.ldr(TMP, emit_boxed_val(boxed_ptr));
+                a.and_(TMP, TMP, imm(_TAG_HEADER_MASK));
+                a.cmp(TMP, imm(_TAG_HEADER_RECORD));
+                a.b_ne(resolve_beam_label(Fail, disp32MB));
+            },
+            TMP);
 }
 
 void BeamModuleAssembler::emit_is_native_record(const ArgLabel &Fail,
