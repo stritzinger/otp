@@ -489,15 +489,24 @@ void BeamModuleAssembler::emit_i_bs_get_binary2(const ArgRegister &Ctx,
                          Dst);
 }
 
-void BeamModuleAssembler::emit_i_bs_get_bin_and_tail(
-        const ArgRegister &Ctx,
-        const ArgLabel &Fail,
-        const ArgWord &Live,
-        const ArgRegister &Size,
-        const ArgWord &Unit,
-        const ArgRegister &Dst1,
-        const ArgRegister &Dst2) {
-    emit_nyi("emit_i_bs_get_bin_and_tail");
+void BeamModuleAssembler::emit_i_bs_get_bin_and_tail(const ArgRegister &Ctx,
+                                                     const ArgLabel &Fail,
+                                                     const ArgWord &Live,
+                                                     const ArgRegister &Size,
+                                                     const ArgWord &Unit,
+                                                     const ArgRegister &Dst1,
+                                                     const ArgRegister &Dst2) {
+    emit_bs_get_binary(ArgWord(2 * BUILD_SUB_BITSTRING_HEAP_NEED),
+                       Ctx,
+                       Fail,
+                       Live,
+                       Size,
+                       Unit,
+                       Dst1);
+
+    mov_arg(ARG1, Ctx);
+    fragment_call(ga->get_bs_get_tail_shared());
+    mov_arg(Dst2, ARG1);
 }
 
 void BeamModuleAssembler::emit_i_bs_get_float2(const ArgRegister &Ctx,
