@@ -281,7 +281,7 @@ void BeamModuleAssembler::emit_continue_exit() {
 void BeamModuleAssembler::emit_get_list(const ArgRegister &Src,
                                         const ArgRegister &Hd,
                                         const ArgRegister &Tl) {
-    auto src = load_source(Src);
+    auto src = load_source(Src, TMP);
 
     auto hd = init_destination(Hd, ARG1);
     auto tl = init_destination(Tl, ARG2);
