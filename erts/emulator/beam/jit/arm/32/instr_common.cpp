@@ -2450,10 +2450,10 @@ void BeamGlobalAssembler::emit_catch_end_shared() {
         a.b_ls(after_gc);
         {
             /* Preserve reason/stacktrace term across GC. */
-            a.str(ARG1, TMP_MEM1q);
+            a.str(ARG1, getXRef(0));
             mov_imm(ARG4, 1);
             a.bl(labels[garbage_collect]);
-            a.ldr(ARG1, TMP_MEM1q);
+            a.ldr(ARG1, getXRef(0));
         }
         a.bind(after_gc);
 
