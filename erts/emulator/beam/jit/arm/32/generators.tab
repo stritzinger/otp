@@ -500,11 +500,9 @@ gen.create_bin(Fail, Alloc, Live, Unit, Dst, N, Segments) {
             if (num_chars <= 4) {
                 Sint index = op->a[i+fixed_args+4].val;
                 const byte* s = S->beam.strings.data + index;
+                Sint remaining = num_chars;
                 Uint num = 0;
-                op->a[i+fixed_args+0].val = am_integer;
-                op->a[i+fixed_args+2].val = 8;
-                op->a[i+fixed_args+5].val = num_chars;
-                while (num_chars-- > 0) {
+                while (remaining-- > 0) {
                     num = num << 8 | *s++;
                 }
                 /* TAG_i operands are materialized as small immediates by the
@@ -512,11 +510,8 @@ gen.create_bin(Fail, Alloc, Live, Unit, Dst, N, Segments) {
                  * doesn't fit a small (common on 32-bit). */
                 if (num <= (Uint)MAX_SMALL) {
                     op->a[i+fixed_args+0].val = am_integer;
-                    op->a[i+fixed_args+2].val = 8;                
+                    op->a[i+fixed_args+2].val = 8;
                     op->a[i+fixed_args+5].val = num_chars;
-                    while (num_chars-- > 0) {
-                        num = num << 8 | *s++;
-                    }
                     op->a[i+fixed_args+4].type = TAG_i;
                     op->a[i+fixed_args+4].val = num;
                 }
