@@ -19,7 +19,7 @@
  */
 
 #include "beam_asm.hpp"
-#include <numeric>
+#include "beam_jit_bs.hpp"
 
 extern "C"
 {
@@ -737,106 +737,6 @@ void BeamGlobalAssembler::emit_get_sint64_shared() {
     a.bx(a32::lr);
 }
 
-struct BscSegment {
-    BscSegment()
-            : type(am_false), unit(1), flags(0), src(ArgNil()), size(ArgNil()),
-              error_info(0), offsetInAccumulator(0), effectiveSize(-1),
-              action(action::DIRECT) {
-    }
-
-    Eterm type;
-    Uint unit;
-    Uint flags;
-    ArgVal src;
-    ArgVal size;
-
-    Uint error_info;
-    Uint offsetInAccumulator;
-    Sint effectiveSize;
-
-    /* Here are sub actions for storing integer segments.
-     *
-     * We use the ACCUMULATE action to accumulator values of segments
-     * with known, small sizes (no more than 64 bits) into an
-     * accumulator register.
-     *
-     * When no more segments can be accumulated, the STORE action is
-     * used to store the value of the accumulator into the binary.
-     *
-     * The DIRECT action is used when it is not possible to use the
-     * accumulator (for unknown or too large sizes).
-     */
-    enum class action { DIRECT, ACCUMULATE, STORE } action;
-};
-
-static std::vector<BscSegment> bs_combine_segments(
-        const std::vector<BscSegment> segments) {
-    std::vector<BscSegment> segs;
-
-    for (auto seg : segments) {
-        switch (seg.type) {
-        case am_integer: {
-            if (!(0 < seg.effectiveSize && seg.effectiveSize <= 64)) {
-                segs.push_back(seg);
-                continue;
-            }
-
-            if (seg.flags & BSF_LITTLE || segs.empty() ||
-                segs.back().action == BscSegment::action::DIRECT) {
-                seg.action = BscSegment::action::ACCUMULATE;
-                segs.push_back(seg);
-                seg.action = BscSegment::action::STORE;
-                segs.push_back(seg);
-                continue;
-            }
-
-            auto prev = segs.back();
-            if (prev.flags & BSF_LITTLE) {
-                seg.action = BscSegment::action::ACCUMULATE;
-                segs.push_back(seg);
-                seg.action = BscSegment::action::STORE;
-                segs.push_back(seg);
-                continue;
-            }
-
-            if (prev.effectiveSize + seg.effectiveSize <= 64) {
-                segs.pop_back();
-                prev.effectiveSize += seg.effectiveSize;
-                seg.action = BscSegment::action::ACCUMULATE;
-                segs.push_back(seg);
-                segs.push_back(prev);
-            } else {
-                seg.action = BscSegment::action::ACCUMULATE;
-                segs.push_back(seg);
-                seg.action = BscSegment::action::STORE;
-                segs.push_back(seg);
-            }
-            break;
-        }
-        default:
-            segs.push_back(seg);
-            break;
-        }
-    }
-
-    Uint offset = 0;
-    for (int i = segs.size() - 1; i >= 0; i--) {
-        switch (segs[i].action) {
-        case BscSegment::action::STORE:
-            offset = 64 - segs[i].effectiveSize;
-            break;
-        case BscSegment::action::ACCUMULATE:
-            segs[i].offsetInAccumulator = offset;
-            offset += segs[i].effectiveSize;
-            break;
-        default:
-            break;
-        }
-    }
-
-    return segs;
-}
-
 /*
  * In:
  *    bin_offset = register to store the bit offset into the binary
@@ -1179,63 +1079,26 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                                                const ArgRegister &Dst,
                                                const Span<const ArgVal> &args) {
     Uint num_bits = 0;
-    std::size_t n = args.size();
     std::vector<BscSegment> segments;
     Label error; /* Intentionally uninitialized */
     bool dynamic_size = false;
     ArgWord Live = Live0;
 
-    for (std::size_t i = 0; i < n; i += 6) {
-        BscSegment seg;
-        JitBSCOp bsc_op;
-        Uint bsc_segment;
+    segments = beam_jit_bsc_init(args);
 
-        seg.type = args[i].as<ArgImmed>().get();
-        bsc_segment = args[i + 1].as<ArgWord>().get();
-        seg.unit = args[i + 2].as<ArgWord>().get();
-        seg.flags = args[i + 3].as<ArgWord>().get();
-        seg.src = args[i + 4];
-        seg.size = args[i + 5];
-
-        switch (seg.type) {
-        case am_float:
-            bsc_op = BSC_OP_FLOAT;
-            break;
-        case am_integer:
-            bsc_op = BSC_OP_INTEGER;
-            break;
-        case am_utf8:
-            bsc_op = BSC_OP_UTF8;
-            break;
-        case am_utf16:
-            bsc_op = BSC_OP_UTF16;
-            break;
-        case am_utf32:
-            bsc_op = BSC_OP_UTF32;
-            break;
-        default:
-            bsc_op = BSC_OP_BITSTRING;
-            break;
-        }
-        seg.error_info = beam_jit_set_bsc_segment_op(bsc_segment, bsc_op);
-
+    for (auto &seg : segments) {
         if (seg.size.isSmall() && seg.unit != 0) {
             Uint unsigned_size = seg.size.as<ArgSmall>().getUnsigned();
-            if ((unsigned_size >> (sizeof(Eterm) - 1) * 8) == 0) {
+            if (unsigned_size <= (MAX_SMALL / seg.unit)) {
                 Uint seg_size = seg.unit * unsigned_size;
                 seg.effectiveSize = seg_size;
                 num_bits += seg_size;
             }
-        } else if (seg.type == am_binary && seg.size.isAtom() &&
-                   seg.size.as<ArgAtom>().get() == am_all) {
-            dynamic_size = true;
-        } else if (seg.type == am_append || seg.type == am_private_append) {
-            dynamic_size = true;
-        } else {
-            dynamic_size = true;
         }
 
-        segments.push_back(seg);
+        if (seg.effectiveSize < 0) {
+            dynamic_size = true;
+        }
     }
 
     if (Fail.get() != 0) {
@@ -1335,13 +1198,26 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                 a.tst(ARG3, imm(0x80000000u));
                 a.b_ne(resolve_label(error, dispUnknown));
 
-                a.asr(ARG3, ARG3, imm(_TAG_IMMED1_SIZE));
+                a.asr(ARG2, ARG3, imm(_TAG_IMMED1_SIZE));
                 if (seg.unit != 1) {
-                    mov_imm(ARG2, seg.unit);
-                    a.mul(ARG3, ARG3, ARG2);
+                    if (Fail.get() == 0) {
+                        mov_imm(ARG4,
+                                beam_jit_update_bsc_reason_info(
+                                        seg.error_info,
+                                        BSC_REASON_SYSTEM_LIMIT,
+                                        BSC_INFO_SIZE,
+                                        BSC_VALUE_ARG3));
+                    }
+
+                    mov_imm(ARG1, MAX_SMALL / seg.unit);
+                    a.cmp(ARG2, ARG1);
+                    a.b_hi(resolve_label(error, dispUnknown));
+
+                    mov_imm(ARG1, seg.unit);
+                    a.mul(ARG2, ARG2, ARG1);
                 }
                 a.ldr(TMP, TMP_MEM5q);
-                a.add(TMP, TMP, ARG3);
+                a.add(TMP, TMP, ARG2);
                 a.str(TMP, TMP_MEM5q);
                 continue;
             }
@@ -1635,12 +1511,16 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
             {
                 Label ok = a.new_label();
                 Label op_fail = a.new_label();
-                Label size_fail = a.new_label();
 
                 if (seg.effectiveSize >= 0) {
                     mov_imm(ARG3, seg.effectiveSize);
                 } else {
-                    emit_bs_get_field_size(seg.size, seg.unit, size_fail, ARG3);
+                    mov_arg(ARG3, seg.size);
+                    a.asr(ARG3, ARG3, imm(_TAG_IMMED1_SIZE));
+                    if (seg.unit != 1) {
+                        mov_imm(ARG2, seg.unit);
+                        a.mul(ARG3, ARG3, ARG2);
+                    }
                 }
 
                 if (seg.effectiveSize >= 0 && seg.src.isSmall() &&
@@ -1666,17 +1546,6 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                     a.b_eq(op_fail);
                     a.b(ok);
                 }
-
-                a.bind(size_fail);
-                if (Fail.get() == 0) {
-                    mov_imm(ARG4,
-                            beam_jit_update_bsc_reason_info(seg.error_info,
-                                                            BSC_REASON_DEPENDS,
-                                                            BSC_INFO_SIZE,
-                                                            BSC_VALUE_ARG3));
-                    mov_arg(ARG3, seg.size);
-                }
-                a.b(resolve_label(error, dispUnknown));
 
                 a.bind(op_fail);
                 if (Fail.get() == 0) {
@@ -1802,32 +1671,6 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
 /*
  * Here follows the bs_match instruction and friends.
  */
-
-struct BsmSegment {
-    BsmSegment()
-            : action(action::TEST_HEAP), live(ArgNil()), size(0), unit(1),
-              flags(0), dst(ArgXRegister(0)){};
-
-    enum class action {
-        TEST_HEAP,
-        ENSURE_AT_LEAST,
-        ENSURE_EXACTLY,
-        READ,
-        EXTRACT_BITSTRING,
-        EXTRACT_INTEGER,
-        GET_INTEGER,
-        GET_BITSTRING,
-        SKIP,
-        DROP,
-        GET_TAIL,
-        EQ
-    } action;
-    ArgVal live;
-    Uint size;
-    Uint unit;
-    Uint flags;
-    ArgRegister dst;
-};
 
 void BeamModuleAssembler::emit_read_bits(Uint bits,
                                          const a32::Gp bin_base,
@@ -2216,6 +2059,7 @@ void BeamModuleAssembler::emit_i_bs_match_test_heap(ArgLabel const &Fail,
             break;
         }
         case BsmSegment::action::READ:
+        case BsmSegment::action::READ_INTEGER:
         case BsmSegment::action::EXTRACT_BITSTRING:
         case BsmSegment::action::EXTRACT_INTEGER:
         case BsmSegment::action::DROP:
