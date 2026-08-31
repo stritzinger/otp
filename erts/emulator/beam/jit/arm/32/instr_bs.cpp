@@ -1674,7 +1674,7 @@ void BeamModuleAssembler::emit_i_bs_create_bin(const ArgLabel &Fail,
                                                             BSC_REASON_DEPENDS,
                                                             BSC_INFO_SIZE,
                                                             BSC_VALUE_ARG3));
-                    mov_arg(ARG1, seg.size);
+                    mov_arg(ARG3, seg.size);
                 }
                 a.b(resolve_label(error, dispUnknown));
 
