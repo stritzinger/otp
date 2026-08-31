@@ -202,13 +202,14 @@ void BeamGlobalAssembler::emit_export_trampoline() {
 
     a.bind(error_handler);
     {
-        Label raise_undef = a.new_label(), dispatch = a.new_label();
+        lea(ARG2, a32::Mem(ARG1, offsetof(Export, info.mfa)));
+        a.str(ARG2, TMP_MEM1q);
 
         emit_enter_runtime_frame();
         emit_enter_runtime<Update::eReductions | Update::eHeapAlloc>();
 
-        lea(ARG2, a32::Mem(ARG1, offsetof(Export, info.mfa)));
         a.mov(ARG1, c_p);
+        /* ARG2 set above */
         load_x_reg_array(ARG3);
         mov_imm(ARG4, am_undefined_function);
         runtime_call<
@@ -221,20 +222,10 @@ void BeamGlobalAssembler::emit_export_trampoline() {
         emit_leave_runtime<Update::eReductions | Update::eHeapAlloc>();
         emit_leave_runtime_frame();
 
+        a.ldr(ARG4, TMP_MEM1q);
         a.tst(ARG1, ARG1);
-        a.b_eq(raise_undef);
-        a.b(dispatch);
+        a.b_eq(labels[raise_exception]);
 
-        a.bind(raise_undef);
-        {
-            /* Route through the shared exception path so that the Erlang frame
-             * unwinding state (fake CP handling, etc.) matches normal raises. */
-            mov_imm(ARG4, 0);
-            mov_imm(ARG2, 0);
-            a.b(labels[raise_exception_shared]);
-        }
-
-        a.bind(dispatch);
         branch(emit_setup_dispatchable_call(ARG1));
     }
 }
