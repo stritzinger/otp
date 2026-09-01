@@ -940,7 +940,7 @@ void BeamModuleAssembler::emit_update_record_in_place(
     if (all_safe) {
         comment("skipped copy fallback because all new values are safe");
     } else {
-        Label update = a.new_label();
+        Label copy = a.new_label(), update = a.new_label();
 
         if (!maybe_immediate.isNil()) {
             auto value = load_source(maybe_immediate, TMP);
@@ -949,10 +949,11 @@ void BeamModuleAssembler::emit_update_record_in_place(
 
         a.ldr(ARG4, a32::Mem(c_p, offsetof(Process, high_water)));
         a.cmp(untagged_src, HTOP);
-        a.b_hs(update);
+        a.b_hs(copy);
         a.cmp(untagged_src, ARG4);
         a.b_hs(update);
 
+        a.bind(copy);
         emit_copy_words_increment(untagged_src, HTOP, size_on_heap);
         sub(untagged_src, HTOP, size_on_heap * sizeof(Eterm));
 
@@ -986,7 +987,7 @@ void BeamModuleAssembler::emit_update_record_in_place(
 
 #ifdef DEBUG
     if (!all_safe && maybe_immediate.isNil()) {
-        Label pointer_ok = a.new_label();
+        Label bad_pointer = a.new_label(), pointer_ok = a.new_label();
 
         /* If p->high_water contained a garbage value, a tuple not in
          * the safe part of the new heap could have been destructively
@@ -995,10 +996,11 @@ void BeamModuleAssembler::emit_update_record_in_place(
         mov_arg(ARG2, Dst);
         a.ldr(ARG4, a32::Mem(c_p, offsetof(Process, heap)));
         a.cmp(ARG2, HTOP);
-        a.b_hs(pointer_ok);
+        a.b_hs(bad_pointer);
         a.cmp(ARG2, ARG4);
         a.b_hs(pointer_ok);
 
+        a.bind(bad_pointer);
         emit_enter_runtime();
         a.mov(ARG1, c_p);
         runtime_call<void (*)(Process *, Eterm), beam_jit_invalid_heap_ptr>();
