@@ -471,7 +471,7 @@ void BeamGlobalAssembler::emit_call_light_bif_shared() {
             a.bind(check_fragments);
             a.sub(TMP, E, HTOP);
             a.ldr(VAR, a32::Mem(c_p, offsetof(Process, mbuf_sz)));
-            a.lsl(VAR, VAR, imm(3));
+            a.lsl(VAR, VAR, imm(2));
             a.cmp(TMP, VAR);
             a.b_lo(gc_after_bif_call);
         }
