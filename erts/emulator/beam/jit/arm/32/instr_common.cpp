@@ -761,6 +761,11 @@ void BeamModuleAssembler::emit_put_tuple2(const ArgRegister &Dst,
     add(HTOP, HTOP, sizeof(Eterm));
 
     for (size_t i = 0; i < args.size(); i++) {
+        /* A large tuple is emitted as one BEAM instruction. Check within the
+         * element loop so literals pending before or created by the tuple do
+         * not exceed the A32 literal-load displacement limit. */
+        check_pending_stubs();
+
         auto src = load_source(args[i], TMP);
         a.str(src.reg, a32::Mem(HTOP));
         add(HTOP, HTOP, sizeof(Eterm));
