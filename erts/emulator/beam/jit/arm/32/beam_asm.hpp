@@ -1498,7 +1498,7 @@ protected:
         } else {
             /* Avoid clobbering the source register when materializing the
              * effective address. */
-            a32::Gp base = a32::Gp::make_r(mem.base_id());            
+            a32::Gp base = a32::Gp::make_r(mem.base_id());
             ASSERT(gp != TMP && base != TMP);
             add(TMP, base, offset);
             a.str(gp, a32::Mem(TMP));
@@ -1544,7 +1544,9 @@ protected:
                     },
                     gp);
         } else {
-            add(TMP, a32::Gp::make_r(mem.base_id()), offset);
+            a32::Gp base = a32::Gp::make_r(mem.base_id());
+            ASSERT(base != TMP);
+            add(TMP, base, offset);
             a.ldr(gp, a32::Mem(TMP));
         }
     }
