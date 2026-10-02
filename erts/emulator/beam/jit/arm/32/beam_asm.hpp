@@ -1439,14 +1439,14 @@ protected:
     }
 
     void mov_arg(const ArgRegister &To, const ArgVal &From) {
-        auto from = load_source(From, TMP);
+        auto from = load_source(From, VAR);
         auto to = init_destination(To, from.reg);
         mov_var(to, from);
         flush_var(to);
     }
 
     void mov_arg(const ArgRegister &To, a32::Mem From) {
-        auto to = init_destination(To, TMP);
+        auto to = init_destination(To, VAR);
         a.ldr(to.reg, From);
         flush_var(to);
     }
@@ -1498,10 +1498,10 @@ protected:
         } else {
             /* Avoid clobbering the source register when materializing the
              * effective address. */
-            a32::Gp addr = (gp != TMP) ? TMP : VAR;
-            ASSERT(addr != gp);
-            add(addr, a32::Gp::make_r(mem.base_id()), offset);
-            a.str(gp, a32::Mem(addr));
+            a32::Gp base = a32::Gp::make_r(mem.base_id());
+            ASSERT(gp != TMP && base != TMP);
+            add(TMP, base, offset);
+            a.str(gp, a32::Mem(TMP));
         }
     }
 
@@ -1544,7 +1544,9 @@ protected:
                     },
                     gp);
         } else {
-            add(TMP, a32::Gp::make_r(mem.base_id()), offset);
+            a32::Gp base = a32::Gp::make_r(mem.base_id());
+            ASSERT(base != TMP);
+            add(TMP, base, offset);
             a.ldr(gp, a32::Mem(TMP));
         }
     }
