@@ -550,7 +550,7 @@ void BeamModuleAssembler::emit_move_trim(const ArgSource &Src,
         auto src_index = Src.as<ArgYRegister>().get();
         if (src_index == 0 && Support::is_int_n<9>(trim)) {
             const a32::Mem src_ref = a32::Mem(E).post(trim);
-            auto dst = init_destination(Dst.trimmed(Words.get()), TMP);
+            auto dst = init_destination(Dst.trimmed(Words.get()), VAR);
             a.ldr(dst.reg, src_ref);
             flush_var(dst);
 
@@ -771,7 +771,7 @@ void BeamModuleAssembler::emit_put_tuple2(const ArgRegister &Dst,
         add(HTOP, HTOP, sizeof(Eterm));
     }
 
-    auto ptr = init_destination(Dst, TMP);
+    auto ptr = init_destination(Dst, VAR);
     sub(ptr.reg, HTOP, size * sizeof(Eterm) - TAG_PRIMARY_BOXED);
     flush_var(ptr);
 }
